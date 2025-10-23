@@ -232,6 +232,17 @@ func main() {
 				gristtools.Help()
 			}
 		}
+	case "create":
+		if len(args) > 1 {
+			switch args[1] {
+			case "org":
+				orgName := args[2]
+				orgDomain := args[3]
+				gristtools.CreateOrg(orgName, orgDomain)
+			default:
+				gristtools.Help()
+			}
+		}
 	default:
 		gristtools.Help()
 		flag.PrintDefaults()

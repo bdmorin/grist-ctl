@@ -28,6 +28,7 @@
     "help": {
         "accepted": "Commandes acceptées",
         "config": "configurer l'url et le token du serveur Grist",
+        "createOrg": "créer une organisation",
         "deleteDoc": "supprimer un document",
         "deleteOrg": "supprimer une organisation",
         "deleteUser": "supprimer un utilisateur",

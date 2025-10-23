@@ -40,6 +40,7 @@ func Help() {
 
 	commands := []command{
 		{"config", common.T("help.config")},
+		{"create org <name> <domain>", common.T("help.createOrg")},
 		{"delete doc <id>", common.T("help.deleteDoc")},
 		{"delete org <id> <name>", common.T("help.deleteOrg")},
 		{"delete user <id>", common.T("help.deleteUser")},
@@ -875,6 +876,18 @@ func MoveAllDocs(fromWorkspaceId int, toWorkspaceId int) {
 		fmt.Printf("❗️ Workspace %d not found ❗️\n", from_ws)
 	} else {
 		gristapi.MoveAllDocs(fromWorkspaceId, toWorkspaceId)
+	}
+
+}
+
+// Move all documents from a workspace to another
+func CreateOrg(orgName string, orgDomain string) {
+	org := gristapi.GetOrg(orgDomain)
+
+	if org.Id != 0 {
+		fmt.Printf("❗️ Organization %s already exists ❗️\n", org.Name)
+	} else {
+		gristapi.CreateOrg(orgName, orgDomain)
 	}
 
 }

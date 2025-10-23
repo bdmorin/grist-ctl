@@ -27,6 +27,7 @@
   "help": {
     "accepted": "Accepted orders",
     "config": "configure url & token of Grist server",
+    "createOrg": "create an organization",
     "deleteDoc": "delete a document",
     "deleteOrg": "delete an organization",
     "deleteUser": "delete a user",

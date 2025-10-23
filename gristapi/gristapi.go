@@ -422,6 +422,21 @@ func ImportUsers(orgId int, workspaceName string, users []UserRole) {
 
 }
 
+// Create an organization
+func CreateOrg(orgName string, orgDomain string) int {
+	url := fmt.Sprintf("orgs")
+	data := fmt.Sprintf(`{"name":"%s", "domain":"%s"}`, orgName, orgDomain)
+	body, status := httpPost(url, data)
+	idOrg := 0
+	if status == http.StatusOK {
+		id, err := strconv.Atoi(body)
+		if err == nil {
+			idOrg = id
+		}
+	}
+	return idOrg
+}
+
 // Create a workspace in an organization
 func CreateWorkspace(orgId int, workspaceName string) int {
 	url := fmt.Sprintf("orgs/%d/workspaces", orgId)
