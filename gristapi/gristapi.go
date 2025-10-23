@@ -93,6 +93,24 @@ type UserRole struct {
 	Role  string
 }
 
+// Grist's organization usage
+type OrgUsage struct {
+	CountsByDataLimitStatus DataLimitStatus `json:"CountsByDataLimitStatus"`
+	Attachments             Attachment      `json:"attachments"`
+}
+
+// Grist's data limit status
+type DataLimitStatus struct {
+	ApproachingLimit int
+	GracePeriod      int
+	DeleteOnly       int
+}
+
+// Grist's attachment
+type Attachment struct {
+	TotalBytes int `json:"totalBytes"`
+}
+
 // Apply config and return the config file path
 func GetConfig() string {
 	home := os.Getenv("HOME")
@@ -224,6 +242,17 @@ func GetWorkspace(workspaceId int) Workspace {
 		json.Unmarshal([]byte(response), &workspace)
 	}
 	return workspace
+}
+
+// Delete an organization
+func DeleteOrg(orgId int, orgName string) {
+	url := fmt.Sprintf("orgs/%d/%s", orgId, orgName)
+	response, status := httpDelete(url, "")
+	if status == http.StatusOK {
+		fmt.Printf("Organization %d : %s deleted\t✅\n", orgId, orgName)
+	} else {
+		fmt.Printf("Unable to delete organization %d : %s : %s ❗️\n", orgId, orgName, response)
+	}
 }
 
 // Delete a workspace
@@ -411,6 +440,21 @@ func ImportUsers(orgId int, workspaceName string, users []UserRole) {
 
 }
 
+// Create an organization
+func CreateOrg(orgName string, orgDomain string) int {
+	url := fmt.Sprintf("orgs")
+	data := fmt.Sprintf(`{"name":"%s", "domain":"%s"}`, orgName, orgDomain)
+	body, status := httpPost(url, data)
+	idOrg := 0
+	if status == http.StatusOK {
+		id, err := strconv.Atoi(body)
+		if err == nil {
+			idOrg = id
+		}
+	}
+	return idOrg
+}
+
 // Create a workspace in an organization
 func CreateWorkspace(orgId int, workspaceName string) int {
 	url := fmt.Sprintf("orgs/%d/workspaces", orgId)
@@ -459,4 +503,12 @@ func GetTableContent(docId string, tableName string) {
 	url := fmt.Sprintf("docs/%s/download/csv?tableId=%s", docId, tableName)
 	csvFile, _ := httpGet(url, "")
 	fmt.Println(csvFile)
+}
+
+// Retrieves information on a specific organization
+func GetOrgUsageSummary(orgId string) OrgUsage {
+	usage := OrgUsage{}
+	response, _ := httpGet("orgs/"+orgId+"/usage", "")
+	json.Unmarshal([]byte(response), &usage)
+	return usage
 }

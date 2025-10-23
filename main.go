@@ -56,6 +56,9 @@ func main() {
 							case "access":
 								orgId := args[2]
 								gristtools.DisplayOrgAccess(orgId)
+							case "usage":
+								orgId := args[2]
+								gristtools.GetOrgUsageSummary(orgId)
 							default:
 								gristtools.Help()
 							}
@@ -185,6 +188,16 @@ func main() {
 		{
 			if len(args) > 2 {
 				switch arg2 := args[1]; arg2 {
+				case "org":
+					if len(args) == 4 {
+						orgId, err := strconv.Atoi(args[2])
+						orgName := args[3]
+						if err == nil {
+							gristtools.DeleteOrg(orgId, orgName)
+						}
+					} else {
+						gristtools.Help()
+					}
 				case "workspace":
 					if len(args) == 3 {
 						idWorkspace, err := strconv.Atoi(args[2])
@@ -218,6 +231,17 @@ func main() {
 			switch args[1] {
 			case "users":
 				gristtools.ImportUsers()
+			default:
+				gristtools.Help()
+			}
+		}
+	case "create":
+		if len(args) > 1 {
+			switch args[1] {
+			case "org":
+				orgName := args[2]
+				orgDomain := args[3]
+				gristtools.CreateOrg(orgName, orgDomain)
 			default:
 				gristtools.Help()
 			}
