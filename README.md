@@ -193,7 +193,7 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Credits
 
-Gristle is a fork of [grist-ctl](https://github.com/Ville-Eurometropole-Strasbourg/grist-ctl) by [Ville Eurometropole Strasbourg](https://github.com/Ville-Eurometropole-Strasbourg). Much respect to the original authors for their excellent work.
+Gristle is a fork of [grist-ctl](https://github.com/Ville-Eurometropole-Strasbourg/grist-ctl) by [Ville Eurométropole Strasbourg](https://github.com/Ville-Eurometropole-Strasbourg). Much respect to the original authors for their excellent work.
 
 **🇫🇷 Merci beaucoup! 🇫🇷**
 
