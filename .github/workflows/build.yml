@@ -1,8 +1,4 @@
-# SPDX-FileCopyrightText: 2024 Ville Eurométropole Strasbourg
-#
-# SPDX-License-Identifier: MIT
-
-name: Go
+name: Build Gristle
 permissions:
   contents: write
   packages: write

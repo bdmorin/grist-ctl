@@ -1,9 +1,3 @@
-<!--
-SPDX-FileCopyrightText: 2024 Ville Eurométropole Strasbourg
-
-SPDX-License-Identifier: MIT
--->
-
 # Contributing to Gristle
 
 Thank you for your interest in contributing to **Gristle**! We welcome all contributions, whether they involve reporting bugs, suggesting new features, improving documentation, or submitting code.
