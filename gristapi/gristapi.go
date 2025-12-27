@@ -213,7 +213,7 @@ type GetAttachmentsOptions struct {
 // Apply config and return the config file path
 func GetConfig() string {
 	home := os.Getenv("HOME")
-	configFile := filepath.Join(home, ".gristctl")
+	configFile := filepath.Join(home, ".gristle")
 	if os.Getenv("GRIST_TOKEN") == "" || os.Getenv("GRIST_URL") == "" {
 		err := godotenv.Load(configFile)
 		if err != nil {
