@@ -770,16 +770,18 @@ func DisplayDocWebhooks(docId string) {
 	var webhookInfos []WebhookInfo
 	for _, wh := range webhooks {
 		info := WebhookInfo{
-			Id:             wh.Id,
-			Name:           wh.Fields.Name,
-			Memo:           wh.Fields.Memo,
-			Url:            wh.Fields.Url,
-			Enabled:        wh.Fields.Enabled,
-			EventTypes:     wh.Fields.EventTypes,
-			TableId:        wh.Fields.TableId,
-			Status:         wh.Usage.Status,
-			NumWaiting:     wh.Usage.NumWaiting,
-			LastHttpStatus: wh.Usage.LastHttpStatus,
+			Id:         wh.Id,
+			Name:       wh.Fields.Name,
+			Memo:       wh.Fields.Memo,
+			Url:        wh.Fields.URL,
+			Enabled:    wh.Fields.Enabled,
+			EventTypes: wh.Fields.EventTypes,
+			TableId:    wh.Fields.TableId,
+		}
+		if wh.Usage != nil {
+			info.Status = wh.Usage.Status
+			info.NumWaiting = wh.Usage.NumWaiting
+			info.LastHttpStatus = wh.Usage.LastHttpStatus
 		}
 		webhookInfos = append(webhookInfos, info)
 	}

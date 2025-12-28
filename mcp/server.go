@@ -390,17 +390,20 @@ func registerGetDocWebhooks(s *server.MCPServer) {
 
 		result := make([]webhookInfo, len(webhooks))
 		for i, wh := range webhooks {
-			result[i] = webhookInfo{
+			info := webhookInfo{
 				ID:         wh.Id,
 				Name:       wh.Fields.Name,
 				Memo:       wh.Fields.Memo,
-				URL:        wh.Fields.Url,
+				URL:        wh.Fields.URL,
 				Enabled:    wh.Fields.Enabled,
 				EventTypes: wh.Fields.EventTypes,
 				TableID:    wh.Fields.TableId,
-				Status:     wh.Usage.Status,
-				NumWaiting: wh.Usage.NumWaiting,
 			}
+			if wh.Usage != nil {
+				info.Status = wh.Usage.Status
+				info.NumWaiting = wh.Usage.NumWaiting
+			}
+			result[i] = info
 		}
 
 		jsonBytes, err := json.MarshalIndent(result, "", "  ")

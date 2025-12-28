@@ -177,41 +177,6 @@ type Attachment struct {
 	TotalBytes int `json:"totalBytes"`
 }
 
-// Grist's webhook fields
-type WebhookFields struct {
-	Name           string   `json:"name"`
-	Memo           string   `json:"memo"`
-	Url            string   `json:"url"`
-	Enabled        bool     `json:"enabled"`
-	EventTypes     []string `json:"eventTypes"`
-	IsReadyColumn  *string  `json:"isReadyColumn"`
-	TableId        string   `json:"tableId"`
-	UnsubscribeKey string   `json:"unsubscribeKey"`
-}
-
-// Grist's webhook usage statistics
-type WebhookUsage struct {
-	NumWaiting       int     `json:"numWaiting"`
-	Status           string  `json:"status"`
-	UpdatedTime      *int64  `json:"updatedTime"`
-	LastSuccessTime  *int64  `json:"lastSuccessTime"`
-	LastFailureTime  *int64  `json:"lastFailureTime"`
-	LastErrorMessage *string `json:"lastErrorMessage"`
-	LastHttpStatus   *int    `json:"lastHttpStatus"`
-}
-
-// Grist's webhook
-type Webhook struct {
-	Id     string        `json:"id"`
-	Fields WebhookFields `json:"fields"`
-	Usage  WebhookUsage  `json:"usage"`
-}
-
-// List of Grist's webhooks
-type Webhooks struct {
-	Webhooks []Webhook `json:"webhooks"`
-}
-
 // Apply config and return the config file path
 func GetConfig() string {
 	home := os.Getenv("HOME")
@@ -987,14 +952,6 @@ func SCIMBulkFromJSON(jsonBody string) (SCIMBulkResponse, int) {
 
 	return SCIMBulk(request)
 }
-// Retrieves the list of webhooks for a document
-func GetDocWebhooks(docId string) []Webhook {
-	webhooks := Webhooks{}
-	url := fmt.Sprintf("docs/%s/webhooks", docId)
-	response, _ := httpGet(url, "")
-	json.Unmarshal([]byte(response), &webhooks)
-	return webhooks.Webhooks
-}
 
 // Webhook API Types
 // See: https://support.getgrist.com/api/#tag/webhooks
@@ -1148,4 +1105,13 @@ func ClearWebhookQueue(docId string) (string, int) {
 	url := fmt.Sprintf("docs/%s/webhooks/queue", docId)
 	response, status := httpDelete(url, "")
 	return response, status
+}
+
+// Retrieves the list of webhooks for a document
+func GetDocWebhooks(docId string) []Webhook {
+	webhooks := WebhooksList{}
+	url := fmt.Sprintf("docs/%s/webhooks", docId)
+	response, _ := httpGet(url, "")
+	json.Unmarshal([]byte(response), &webhooks)
+	return webhooks.Webhooks
 }
