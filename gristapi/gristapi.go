@@ -210,6 +210,7 @@ type GetAttachmentsOptions struct {
 	Limit  int                      // Maximum attachments to return
 }
 
+
 // Apply config and return the config file path
 func GetConfig() string {
 	home := os.Getenv("HOME")
@@ -1402,4 +1403,13 @@ func ClearWebhookQueue(docId string) (string, int) {
 	url := fmt.Sprintf("docs/%s/webhooks/queue", docId)
 	response, status := httpDelete(url, "")
 	return response, status
+}
+
+// Retrieves the list of webhooks for a document
+func GetDocWebhooks(docId string) []Webhook {
+	webhooks := WebhooksList{}
+	url := fmt.Sprintf("docs/%s/webhooks", docId)
+	response, _ := httpGet(url, "")
+	json.Unmarshal([]byte(response), &webhooks)
+	return webhooks.Webhooks
 }
