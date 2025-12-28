@@ -745,3 +745,210 @@ func DeleteRecords(docId string, tableId string, recordIds []int) (string, int) 
 	response, status := httpPost(url, string(bodyJSON))
 	return response, status
 }
+
+// SCIM v2 Bulk Operations
+// See RFC 7644 Section 3.7: https://datatracker.ietf.org/doc/html/rfc7644#section-3.7
+
+// SCIMBulkOperation represents a single operation in a SCIM bulk request
+type SCIMBulkOperation struct {
+	Method  string      `json:"method"`            // HTTP method: POST, PUT, PATCH, DELETE
+	Path    string      `json:"path"`              // Resource path (e.g., "/Users", "/Users/123")
+	BulkId  string      `json:"bulkId,omitempty"`  // Client-defined identifier for the operation
+	Version string      `json:"version,omitempty"` // Resource version (ETag) for conditional operations
+	Data    interface{} `json:"data,omitempty"`    // Request body for POST, PUT, PATCH operations
+}
+
+// SCIMBulkRequest represents a SCIM v2 bulk request
+type SCIMBulkRequest struct {
+	Schemas      []string            `json:"schemas"`               // Must include "urn:ietf:params:scim:api:messages:2.0:BulkRequest"
+	FailOnErrors int                 `json:"failOnErrors,omitempty"` // Number of errors before stopping (0 = unlimited)
+	Operations   []SCIMBulkOperation `json:"Operations"`
+}
+
+// SCIMBulkOperationResponse represents the response for a single bulk operation
+type SCIMBulkOperationResponse struct {
+	Method   string      `json:"method"`
+	BulkId   string      `json:"bulkId,omitempty"`
+	Version  string      `json:"version,omitempty"`
+	Location string      `json:"location,omitempty"` // URI of the created/modified resource
+	Status   string      `json:"status"`             // HTTP status code as string (e.g., "201", "200")
+	Response interface{} `json:"response,omitempty"` // Response body or error details
+}
+
+// SCIMBulkResponse represents a SCIM v2 bulk response
+type SCIMBulkResponse struct {
+	Schemas    []string                    `json:"schemas"` // "urn:ietf:params:scim:api:messages:2.0:BulkResponse"
+	Operations []SCIMBulkOperationResponse `json:"Operations"`
+}
+
+// SCIMError represents a SCIM v2 error response
+type SCIMError struct {
+	Schemas  []string `json:"schemas"` // "urn:ietf:params:scim:api:messages:2.0:Error"
+	Detail   string   `json:"detail"`
+	Status   string   `json:"status"`
+	ScimType string   `json:"scimType,omitempty"` // SCIM error type (e.g., "invalidSyntax", "mutability")
+}
+
+const (
+	SCIMBulkRequestSchema  = "urn:ietf:params:scim:api:messages:2.0:BulkRequest"
+	SCIMBulkResponseSchema = "urn:ietf:params:scim:api:messages:2.0:BulkResponse"
+	SCIMErrorSchema        = "urn:ietf:params:scim:api:messages:2.0:Error"
+)
+
+// SCIMBulk performs SCIM v2 bulk operations
+// POST /scim/v2/Bulk
+func SCIMBulk(request SCIMBulkRequest) (SCIMBulkResponse, int) {
+	response := SCIMBulkResponse{
+		Schemas:    []string{SCIMBulkResponseSchema},
+		Operations: []SCIMBulkOperationResponse{},
+	}
+
+	// Validate request schema
+	schemaValid := false
+	for _, schema := range request.Schemas {
+		if schema == SCIMBulkRequestSchema {
+			schemaValid = true
+			break
+		}
+	}
+	if !schemaValid {
+		return response, http.StatusBadRequest
+	}
+
+	errorCount := 0
+	for _, op := range request.Operations {
+		opResponse := executeSCIMOperation(op)
+		response.Operations = append(response.Operations, opResponse)
+
+		// Check if operation failed (status >= 400)
+		statusCode := 0
+		fmt.Sscanf(opResponse.Status, "%d", &statusCode)
+		if statusCode >= 400 {
+			errorCount++
+			if request.FailOnErrors > 0 && errorCount >= request.FailOnErrors {
+				break
+			}
+		}
+	}
+
+	return response, http.StatusOK
+}
+
+// executeSCIMOperation executes a single SCIM bulk operation
+func executeSCIMOperation(op SCIMBulkOperation) SCIMBulkOperationResponse {
+	response := SCIMBulkOperationResponse{
+		Method: op.Method,
+		BulkId: op.BulkId,
+	}
+
+	// Validate method
+	validMethods := map[string]bool{
+		"POST":   true,
+		"PUT":    true,
+		"PATCH":  true,
+		"DELETE": true,
+	}
+	if !validMethods[op.Method] {
+		response.Status = "400"
+		response.Response = SCIMError{
+			Schemas:  []string{SCIMErrorSchema},
+			Detail:   fmt.Sprintf("Invalid method: %s", op.Method),
+			Status:   "400",
+			ScimType: "invalidSyntax",
+		}
+		return response
+	}
+
+	// Validate path
+	if op.Path == "" {
+		response.Status = "400"
+		response.Response = SCIMError{
+			Schemas:  []string{SCIMErrorSchema},
+			Detail:   "Path is required",
+			Status:   "400",
+			ScimType: "invalidSyntax",
+		}
+		return response
+	}
+
+	// Build the SCIM API path
+	scimPath := "scim/v2" + op.Path
+
+	// Execute the operation
+	var bodyJSON []byte
+	var err error
+	if op.Data != nil {
+		bodyJSON, err = json.Marshal(op.Data)
+		if err != nil {
+			response.Status = "400"
+			response.Response = SCIMError{
+				Schemas:  []string{SCIMErrorSchema},
+				Detail:   "Invalid request data",
+				Status:   "400",
+				ScimType: "invalidSyntax",
+			}
+			return response
+		}
+	}
+
+	var respBody string
+	var statusCode int
+
+	switch op.Method {
+	case "POST":
+		respBody, statusCode = httpPost(scimPath, string(bodyJSON))
+	case "PUT":
+		respBody, statusCode = httpPut(scimPath, string(bodyJSON))
+	case "PATCH":
+		respBody, statusCode = httpPatch(scimPath, string(bodyJSON))
+	case "DELETE":
+		respBody, statusCode = httpDelete(scimPath, string(bodyJSON))
+	}
+
+	response.Status = fmt.Sprintf("%d", statusCode)
+
+	// Parse response body if present
+	if respBody != "" {
+		var respData interface{}
+		if err := json.Unmarshal([]byte(respBody), &respData); err == nil {
+			response.Response = respData
+		} else {
+			response.Response = respBody
+		}
+	}
+
+	// Set location header for successful POST/PUT operations
+	if statusCode >= 200 && statusCode < 300 && (op.Method == "POST" || op.Method == "PUT") {
+		// Try to extract id from response for location
+		if respMap, ok := response.Response.(map[string]interface{}); ok {
+			if id, ok := respMap["id"]; ok {
+				response.Location = fmt.Sprintf("%s/api/scim/v2%s/%v", os.Getenv("GRIST_URL"), op.Path, id)
+			}
+		}
+	}
+
+	return response
+}
+
+// SCIMBulkFromJSON parses a JSON request body and performs bulk operations
+func SCIMBulkFromJSON(jsonBody string) (SCIMBulkResponse, int) {
+	var request SCIMBulkRequest
+	if err := json.Unmarshal([]byte(jsonBody), &request); err != nil {
+		return SCIMBulkResponse{
+			Schemas: []string{SCIMBulkResponseSchema},
+			Operations: []SCIMBulkOperationResponse{
+				{
+					Status: "400",
+					Response: SCIMError{
+						Schemas:  []string{SCIMErrorSchema},
+						Detail:   "Invalid JSON in request body",
+						Status:   "400",
+						ScimType: "invalidSyntax",
+					},
+				},
+			},
+		}, http.StatusBadRequest
+	}
+
+	return SCIMBulk(request)
+}

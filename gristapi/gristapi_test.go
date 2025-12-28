@@ -408,3 +408,278 @@ func TestDeleteRecords(t *testing.T) {
 	}
 }
 
+// SCIM Bulk Operations Tests
+
+func TestSCIMBulk_ValidRequest(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		// Mock response for SCIM user creation
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":       "user123",
+			"userName": "testuser",
+		})
+	})
+	defer cleanup()
+
+	request := SCIMBulkRequest{
+		Schemas: []string{SCIMBulkRequestSchema},
+		Operations: []SCIMBulkOperation{
+			{
+				Method: "POST",
+				Path:   "/Users",
+				BulkId: "bulk1",
+				Data: map[string]interface{}{
+					"userName": "testuser",
+					"emails": []map[string]interface{}{
+						{"value": "test@example.com", "primary": true},
+					},
+				},
+			},
+		},
+	}
+
+	response, status := SCIMBulk(request)
+
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if len(response.Schemas) != 1 || response.Schemas[0] != SCIMBulkResponseSchema {
+		t.Errorf("Expected BulkResponse schema, got %v", response.Schemas)
+	}
+	if len(response.Operations) != 1 {
+		t.Errorf("Expected 1 operation response, got %d", len(response.Operations))
+	}
+	if response.Operations[0].BulkId != "bulk1" {
+		t.Errorf("Expected bulkId 'bulk1', got %s", response.Operations[0].BulkId)
+	}
+	if response.Operations[0].Method != "POST" {
+		t.Errorf("Expected method 'POST', got %s", response.Operations[0].Method)
+	}
+}
+
+func TestSCIMBulk_InvalidSchema(t *testing.T) {
+	request := SCIMBulkRequest{
+		Schemas: []string{"invalid:schema"},
+		Operations: []SCIMBulkOperation{
+			{
+				Method: "POST",
+				Path:   "/Users",
+			},
+		},
+	}
+
+	_, status := SCIMBulk(request)
+
+	if status != http.StatusBadRequest {
+		t.Errorf("Expected status 400 for invalid schema, got %d", status)
+	}
+}
+
+func TestSCIMBulk_InvalidMethod(t *testing.T) {
+	request := SCIMBulkRequest{
+		Schemas: []string{SCIMBulkRequestSchema},
+		Operations: []SCIMBulkOperation{
+			{
+				Method: "GET", // GET is not allowed in bulk operations
+				Path:   "/Users",
+			},
+		},
+	}
+
+	response, status := SCIMBulk(request)
+
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200 (overall request succeeds), got %d", status)
+	}
+	if len(response.Operations) != 1 {
+		t.Fatalf("Expected 1 operation response, got %d", len(response.Operations))
+	}
+	if response.Operations[0].Status != "400" {
+		t.Errorf("Expected operation status '400', got %s", response.Operations[0].Status)
+	}
+}
+
+func TestSCIMBulk_MissingPath(t *testing.T) {
+	request := SCIMBulkRequest{
+		Schemas: []string{SCIMBulkRequestSchema},
+		Operations: []SCIMBulkOperation{
+			{
+				Method: "POST",
+				Path:   "", // Empty path
+			},
+		},
+	}
+
+	response, status := SCIMBulk(request)
+
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200 (overall request succeeds), got %d", status)
+	}
+	if response.Operations[0].Status != "400" {
+		t.Errorf("Expected operation status '400' for missing path, got %s", response.Operations[0].Status)
+	}
+}
+
+func TestSCIMBulk_MultipleOperations(t *testing.T) {
+	callCount := 0
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.Method {
+		case "POST":
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]interface{}{"id": "user1"})
+		case "PATCH":
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{"id": "user1", "updated": true})
+		case "DELETE":
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})
+	defer cleanup()
+
+	request := SCIMBulkRequest{
+		Schemas: []string{SCIMBulkRequestSchema},
+		Operations: []SCIMBulkOperation{
+			{
+				Method: "POST",
+				Path:   "/Users",
+				BulkId: "op1",
+				Data:   map[string]interface{}{"userName": "user1"},
+			},
+			{
+				Method: "PATCH",
+				Path:   "/Users/user1",
+				BulkId: "op2",
+				Data:   map[string]interface{}{"displayName": "Updated User"},
+			},
+			{
+				Method: "DELETE",
+				Path:   "/Users/user2",
+				BulkId: "op3",
+			},
+		},
+	}
+
+	response, status := SCIMBulk(request)
+
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if len(response.Operations) != 3 {
+		t.Errorf("Expected 3 operation responses, got %d", len(response.Operations))
+	}
+	if callCount != 3 {
+		t.Errorf("Expected 3 HTTP calls, got %d", callCount)
+	}
+}
+
+func TestSCIMBulk_FailOnErrors(t *testing.T) {
+	callCount := 0
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		// All operations fail
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "bad request"})
+	})
+	defer cleanup()
+
+	request := SCIMBulkRequest{
+		Schemas:      []string{SCIMBulkRequestSchema},
+		FailOnErrors: 2, // Stop after 2 errors
+		Operations: []SCIMBulkOperation{
+			{Method: "POST", Path: "/Users", BulkId: "op1"},
+			{Method: "POST", Path: "/Users", BulkId: "op2"},
+			{Method: "POST", Path: "/Users", BulkId: "op3"}, // Should not execute
+			{Method: "POST", Path: "/Users", BulkId: "op4"}, // Should not execute
+		},
+	}
+
+	response, _ := SCIMBulk(request)
+
+	if len(response.Operations) != 2 {
+		t.Errorf("Expected 2 operation responses (stopped after failOnErrors), got %d", len(response.Operations))
+	}
+	if callCount != 2 {
+		t.Errorf("Expected 2 HTTP calls (stopped after failOnErrors), got %d", callCount)
+	}
+}
+
+func TestSCIMBulkFromJSON_ValidJSON(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]interface{}{"id": "user1"})
+	})
+	defer cleanup()
+
+	jsonBody := `{
+		"schemas": ["urn:ietf:params:scim:api:messages:2.0:BulkRequest"],
+		"Operations": [
+			{
+				"method": "POST",
+				"path": "/Users",
+				"bulkId": "test1",
+				"data": {"userName": "testuser"}
+			}
+		]
+	}`
+
+	response, status := SCIMBulkFromJSON(jsonBody)
+
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if len(response.Operations) != 1 {
+		t.Errorf("Expected 1 operation response, got %d", len(response.Operations))
+	}
+}
+
+func TestSCIMBulkFromJSON_InvalidJSON(t *testing.T) {
+	jsonBody := `{invalid json}`
+
+	response, status := SCIMBulkFromJSON(jsonBody)
+
+	if status != http.StatusBadRequest {
+		t.Errorf("Expected status 400 for invalid JSON, got %d", status)
+	}
+	if len(response.Operations) != 1 {
+		t.Fatalf("Expected 1 error operation, got %d", len(response.Operations))
+	}
+	if response.Operations[0].Status != "400" {
+		t.Errorf("Expected operation status '400', got %s", response.Operations[0].Status)
+	}
+}
+
+func TestSCIMBulk_PUTOperation(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PUT" {
+			t.Errorf("Expected PUT request, got %s", r.Method)
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{"id": "user1", "userName": "updated"})
+	})
+	defer cleanup()
+
+	request := SCIMBulkRequest{
+		Schemas: []string{SCIMBulkRequestSchema},
+		Operations: []SCIMBulkOperation{
+			{
+				Method: "PUT",
+				Path:   "/Users/user1",
+				Data:   map[string]interface{}{"userName": "updated"},
+			},
+		},
+	}
+
+	response, status := SCIMBulk(request)
+
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if response.Operations[0].Status != "200" {
+		t.Errorf("Expected operation status '200', got %s", response.Operations[0].Status)
+	}
+}
+
