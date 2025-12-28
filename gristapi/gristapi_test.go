@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -681,4 +682,350 @@ func TestSCIMBulk_PUTOperation(t *testing.T) {
 	if response.Operations[0].Status != "200" {
 		t.Errorf("Expected operation status '200', got %s", response.Operations[0].Status)
 	}
+}
+
+// Attachment API Tests
+
+func TestListAttachments(t *testing.T) {
+	expectedAttachments := AttachmentList{
+		Records: []AttachmentMetadata{
+			{Id: 1, FileName: "test.png", FileSize: 1024, TimeUploaded: "2024-01-15T10:30:00Z"},
+			{Id: 2, FileName: "doc.pdf", FileSize: 2048, TimeUploaded: "2024-01-16T11:00:00Z"},
+		},
+	}
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("Expected GET request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/attachments") {
+			t.Errorf("Expected attachments endpoint, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(expectedAttachments)
+	})
+	defer cleanup()
+
+	attachments, status := ListAttachments("doc123", nil)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if len(attachments.Records) != 2 {
+		t.Errorf("Expected 2 attachments, got %d", len(attachments.Records))
+	}
+	if attachments.Records[0].FileName != "test.png" {
+		t.Errorf("Expected first attachment name 'test.png', got %s", attachments.Records[0].FileName)
+	}
+}
+
+func TestListAttachmentsWithOptions(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if query.Get("sort") != "fileName" {
+			t.Errorf("Expected sort=fileName, got %s", query.Get("sort"))
+		}
+		if query.Get("limit") != "5" {
+			t.Errorf("Expected limit=5, got %s", query.Get("limit"))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(AttachmentList{Records: []AttachmentMetadata{}})
+	})
+	defer cleanup()
+
+	options := &GetAttachmentsOptions{
+		Sort:  "fileName",
+		Limit: 5,
+	}
+	_, status := ListAttachments("doc123", options)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+}
+
+func TestUploadAttachments(t *testing.T) {
+	expectedResponse := []int{1, 2}
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+
+		contentType := r.Header.Get("Content-Type")
+		if !contains(contentType, "multipart/form-data") {
+			t.Errorf("Expected multipart/form-data content type, got %s", contentType)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(expectedResponse)
+	})
+	defer cleanup()
+
+	// Create a temporary test file
+	tmpFile, err := os.CreateTemp("", "test-upload-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.WriteString("test content")
+	tmpFile.Close()
+
+	result, status := UploadAttachments("doc123", []string{tmpFile.Name()})
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if len(result) != 2 {
+		t.Errorf("Expected 2 attachment IDs, got %d", len(result))
+	}
+}
+
+func TestUploadAttachmentsEmptyList(t *testing.T) {
+	result, status := UploadAttachments("doc123", []string{})
+	if status != http.StatusBadRequest {
+		t.Errorf("Expected status 400 for empty file list, got %d", status)
+	}
+	if len(result) != 0 {
+		t.Errorf("Expected empty result, got %d items", len(result))
+	}
+}
+
+func TestUploadAttachmentsFromReader(t *testing.T) {
+	expectedResponse := []int{1}
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+
+		contentType := r.Header.Get("Content-Type")
+		if !contains(contentType, "multipart/form-data") {
+			t.Errorf("Expected multipart/form-data content type, got %s", contentType)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(expectedResponse)
+	})
+	defer cleanup()
+
+	reader := strings.NewReader("test file content")
+	result, status := UploadAttachmentsFromReader("doc123", "test.txt", reader)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if len(result) != 1 {
+		t.Errorf("Expected 1 attachment ID, got %d", len(result))
+	}
+}
+
+func TestGetAttachmentMetadata(t *testing.T) {
+	expectedMetadata := AttachmentMetadata{
+		Id:           1,
+		FileName:     "test.png",
+		FileSize:     1024,
+		TimeUploaded: "2024-01-15T10:30:00Z",
+		ImageHeight:  100,
+		ImageWidth:   200,
+	}
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("Expected GET request, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/docs/doc123/attachments/1" {
+			t.Errorf("Expected attachment metadata endpoint, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(expectedMetadata)
+	})
+	defer cleanup()
+
+	metadata, status := GetAttachmentMetadata("doc123", 1)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if metadata.FileName != "test.png" {
+		t.Errorf("Expected fileName 'test.png', got %s", metadata.FileName)
+	}
+	if metadata.FileSize != 1024 {
+		t.Errorf("Expected fileSize 1024, got %d", metadata.FileSize)
+	}
+	if metadata.ImageHeight != 100 {
+		t.Errorf("Expected imageHeight 100, got %d", metadata.ImageHeight)
+	}
+}
+
+func TestDownloadAttachment(t *testing.T) {
+	expectedContent := []byte("file content here")
+	expectedContentType := "image/png"
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("Expected GET request, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/docs/doc123/attachments/1/download" {
+			t.Errorf("Expected download endpoint, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", expectedContentType)
+		w.Write(expectedContent)
+	})
+	defer cleanup()
+
+	content, contentType, status := DownloadAttachment("doc123", 1)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if string(content) != string(expectedContent) {
+		t.Errorf("Expected content '%s', got '%s'", expectedContent, content)
+	}
+	if contentType != expectedContentType {
+		t.Errorf("Expected content type '%s', got '%s'", expectedContentType, contentType)
+	}
+}
+
+func TestDownloadAttachmentToFile(t *testing.T) {
+	expectedContent := []byte("file content for download")
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Write(expectedContent)
+	})
+	defer cleanup()
+
+	// Create temp file path
+	tmpFile, err := os.CreateTemp("", "test-download-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	tmpFile.Close()
+	destPath := tmpFile.Name()
+	defer os.Remove(destPath)
+
+	err = DownloadAttachmentToFile("doc123", 1, destPath)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	// Verify file content
+	content, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("Failed to read downloaded file: %v", err)
+	}
+	if string(content) != string(expectedContent) {
+		t.Errorf("Expected file content '%s', got '%s'", expectedContent, content)
+	}
+}
+
+func TestDownloadAttachmentToFileError(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	defer cleanup()
+
+	err := DownloadAttachmentToFile("doc123", 999, "/tmp/test.txt")
+	if err == nil {
+		t.Error("Expected error for non-existent attachment")
+	}
+}
+
+func TestRestoreAttachments(t *testing.T) {
+	expectedResponse := RestoreAttachmentsResponse{
+		Added:   5,
+		Errored: 1,
+		Unused:  2,
+	}
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/docs/doc123/attachments/archive" {
+			t.Errorf("Expected archive endpoint, got %s", r.URL.Path)
+		}
+
+		contentType := r.Header.Get("Content-Type")
+		if !contains(contentType, "multipart/form-data") {
+			t.Errorf("Expected multipart/form-data content type, got %s", contentType)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(expectedResponse)
+	})
+	defer cleanup()
+
+	// Create a temporary tar file
+	tmpFile, err := os.CreateTemp("", "test-restore-*.tar")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.WriteString("tar archive content")
+	tmpFile.Close()
+
+	result, status := RestoreAttachments("doc123", tmpFile.Name())
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if result.Added != 5 {
+		t.Errorf("Expected 5 added, got %d", result.Added)
+	}
+	if result.Errored != 1 {
+		t.Errorf("Expected 1 errored, got %d", result.Errored)
+	}
+	if result.Unused != 2 {
+		t.Errorf("Expected 2 unused, got %d", result.Unused)
+	}
+}
+
+func TestRestoreAttachmentsFromReader(t *testing.T) {
+	expectedResponse := RestoreAttachmentsResponse{
+		Added:   3,
+		Errored: 0,
+		Unused:  0,
+	}
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(expectedResponse)
+	})
+	defer cleanup()
+
+	reader := strings.NewReader("tar archive content from reader")
+	result, status := RestoreAttachmentsFromReader("doc123", "archive.tar", reader)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if result.Added != 3 {
+		t.Errorf("Expected 3 added, got %d", result.Added)
+	}
+}
+
+func TestDeleteUnusedAttachments(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/docs/doc123/attachments/removeUnused" {
+			t.Errorf("Expected removeUnused endpoint, got %s", r.URL.Path)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+	defer cleanup()
+
+	_, status := DeleteUnusedAttachments("doc123")
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+}
+
+// Helper function for string contains check
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }
