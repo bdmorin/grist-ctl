@@ -78,6 +78,12 @@ Many Grist API endpoints are tracked as tasks in vibe-kanban. Check the task lis
 - Service accounts
 - SQL queries
 
+## Requirements for All Work
+
+- **Tests are mandatory**: Write unit tests for any new code. Run `go test ./...` before considering work complete.
+- **Use the playground**: Test against the Grist playground to verify API integrations work.
+- **Build must pass**: Run `go build` to ensure compilation succeeds.
+
 ## Code Style
 
 - Follow standard Go conventions
