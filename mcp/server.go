@@ -25,6 +25,7 @@ func NewServer() *server.MCPServer {
 	registerGetDoc(s)
 	registerExportDoc(s)
 	registerGetDocTables(s)
+	registerGetDocWebhooks(s)
 
 	return s
 }
@@ -296,6 +297,60 @@ func registerGetDocTables(s *server.MCPServer) {
 			result[i] = tableDetail{
 				ID:      t.Id,
 				Columns: colList,
+			}
+		}
+
+		jsonBytes, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		return mcp.NewToolResultText(string(jsonBytes)), nil
+	})
+}
+
+// registerGetDocWebhooks adds the get_doc_webhooks tool
+func registerGetDocWebhooks(s *server.MCPServer) {
+	tool := mcp.NewTool("get_doc_webhooks",
+		mcp.WithDescription("List all webhooks configured for a document"),
+		mcp.WithString("doc_id",
+			mcp.Required(),
+			mcp.Description("The document ID"),
+		),
+	)
+
+	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		docID, err := req.RequireString("doc_id")
+		if err != nil {
+			return mcp.NewToolResultError("doc_id is required"), nil
+		}
+
+		webhooks := gristapi.GetDocWebhooks(docID)
+
+		type webhookInfo struct {
+			ID         string   `json:"id"`
+			Name       string   `json:"name"`
+			Memo       string   `json:"memo,omitempty"`
+			URL        string   `json:"url"`
+			Enabled    bool     `json:"enabled"`
+			EventTypes []string `json:"event_types"`
+			TableID    string   `json:"table_id"`
+			Status     string   `json:"status"`
+			NumWaiting int      `json:"num_waiting"`
+		}
+
+		result := make([]webhookInfo, len(webhooks))
+		for i, wh := range webhooks {
+			result[i] = webhookInfo{
+				ID:         wh.Id,
+				Name:       wh.Fields.Name,
+				Memo:       wh.Fields.Memo,
+				URL:        wh.Fields.Url,
+				Enabled:    wh.Fields.Enabled,
+				EventTypes: wh.Fields.EventTypes,
+				TableID:    wh.Fields.TableId,
+				Status:     wh.Usage.Status,
+				NumWaiting: wh.Usage.NumWaiting,
 			}
 		}
 
