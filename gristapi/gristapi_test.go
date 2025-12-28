@@ -70,6 +70,7 @@ func TestConnect(t *testing.T) {
 	}
 
 }
+<<<<<<< HEAD
 
 // setupMockServer creates a test server and sets environment variables
 func setupMockServer(handler http.HandlerFunc) (*httptest.Server, func()) {
@@ -407,4 +408,3 @@ func TestDeleteRecords(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", status)
 	}
 }
-
