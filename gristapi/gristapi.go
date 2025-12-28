@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -172,9 +173,41 @@ type DataLimitStatus struct {
 	DeleteOnly       int
 }
 
-// Grist's attachment
+// Grist's attachment (used in OrgUsage)
 type Attachment struct {
 	TotalBytes int `json:"totalBytes"`
+}
+
+// AttachmentMetadata represents metadata for a single attachment
+type AttachmentMetadata struct {
+	Id           int    `json:"id"`
+	FileName     string `json:"fileName"`
+	FileSize     int64  `json:"fileSize"`
+	TimeUploaded string `json:"timeUploaded"`
+	ImageHeight  int    `json:"imageHeight,omitempty"`
+	ImageWidth   int    `json:"imageWidth,omitempty"`
+}
+
+// AttachmentList represents the list of attachments returned by GET /attachments
+type AttachmentList struct {
+	Records []AttachmentMetadata `json:"records"`
+}
+
+// UploadAttachmentsResponse represents the response from uploading attachments
+type UploadAttachmentsResponse []int
+
+// RestoreAttachmentsResponse represents the response from restoring attachments
+type RestoreAttachmentsResponse struct {
+	Added   int `json:"added"`
+	Errored int `json:"errored"`
+	Unused  int `json:"unused"`
+}
+
+// GetAttachmentsOptions contains query parameters for listing attachments
+type GetAttachmentsOptions struct {
+	Filter map[string][]interface{} // Filter by column values
+	Sort   string                   // Column to sort by
+	Limit  int                      // Maximum attachments to return
 }
 
 // Apply config and return the config file path
@@ -951,6 +984,270 @@ func SCIMBulkFromJSON(jsonBody string) (SCIMBulkResponse, int) {
 	}
 
 	return SCIMBulk(request)
+}
+
+// Attachment APIs
+// See: https://support.getgrist.com/api/#tag/attachments
+
+// httpMultipartUpload sends a multipart form upload request to Grist's REST API
+func httpMultipartUpload(endpoint string, fieldName string, files []string) (string, int) {
+	client := &http.Client{}
+	url := fmt.Sprintf("%s/api/%s", os.Getenv("GRIST_URL"), endpoint)
+	bearer := "Bearer " + os.Getenv("GRIST_TOKEN")
+
+	// Create multipart form body
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	for _, filePath := range files {
+		file, err := os.Open(filePath)
+		if err != nil {
+			return fmt.Sprintf("Error opening file %s: %s", filePath, err), -1
+		}
+		defer file.Close()
+
+		// Get filename from path
+		fileName := filepath.Base(filePath)
+
+		// Create form file field
+		part, err := writer.CreateFormFile(fieldName, fileName)
+		if err != nil {
+			return fmt.Sprintf("Error creating form file: %s", err), -1
+		}
+
+		// Copy file content to form field
+		if _, err := io.Copy(part, file); err != nil {
+			return fmt.Sprintf("Error copying file content: %s", err), -1
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return fmt.Sprintf("Error closing multipart writer: %s", err), -1
+	}
+
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		return fmt.Sprintf("Error creating request: %s", err), -1
+	}
+
+	req.Header.Add("Authorization", bearer)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Sprintf("Error sending request: %s", err), -10
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Sprintf("Error reading response: %s", err), resp.StatusCode
+	}
+
+	return string(respBody), resp.StatusCode
+}
+
+// httpMultipartUploadReader sends a multipart form upload request using an io.Reader
+func httpMultipartUploadReader(endpoint string, fieldName string, fileName string, reader io.Reader) (string, int) {
+	client := &http.Client{}
+	url := fmt.Sprintf("%s/api/%s", os.Getenv("GRIST_URL"), endpoint)
+	bearer := "Bearer " + os.Getenv("GRIST_TOKEN")
+
+	// Create multipart form body
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// Create form file field
+	part, err := writer.CreateFormFile(fieldName, fileName)
+	if err != nil {
+		return fmt.Sprintf("Error creating form file: %s", err), -1
+	}
+
+	// Copy reader content to form field
+	if _, err := io.Copy(part, reader); err != nil {
+		return fmt.Sprintf("Error copying content: %s", err), -1
+	}
+
+	if err := writer.Close(); err != nil {
+		return fmt.Sprintf("Error closing multipart writer: %s", err), -1
+	}
+
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		return fmt.Sprintf("Error creating request: %s", err), -1
+	}
+
+	req.Header.Add("Authorization", bearer)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Sprintf("Error sending request: %s", err), -10
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Sprintf("Error reading response: %s", err), resp.StatusCode
+	}
+
+	return string(respBody), resp.StatusCode
+}
+
+// httpGetBinary sends a GET request and returns raw binary response
+func httpGetBinary(endpoint string) ([]byte, string, int) {
+	client := &http.Client{}
+	url := fmt.Sprintf("%s/api/%s", os.Getenv("GRIST_URL"), endpoint)
+	bearer := "Bearer " + os.Getenv("GRIST_TOKEN")
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, "", -1
+	}
+
+	req.Header.Add("Authorization", bearer)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, "", -10
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", resp.StatusCode
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	return body, contentType, resp.StatusCode
+}
+
+// ListAttachments retrieves all attachments for a document
+// GET /docs/{docId}/attachments
+func ListAttachments(docId string, options *GetAttachmentsOptions) (AttachmentList, int) {
+	attachments := AttachmentList{}
+	params := make(map[string]string)
+
+	if options != nil {
+		if options.Filter != nil {
+			filterJSON, err := json.Marshal(options.Filter)
+			if err == nil {
+				params["filter"] = string(filterJSON)
+			}
+		}
+		if options.Sort != "" {
+			params["sort"] = options.Sort
+		}
+		if options.Limit > 0 {
+			params["limit"] = strconv.Itoa(options.Limit)
+		}
+	}
+
+	url := fmt.Sprintf("docs/%s/attachments%s", docId, buildRecordsQueryParams(params))
+	response, status := httpGet(url, "")
+	if status == http.StatusOK {
+		json.Unmarshal([]byte(response), &attachments)
+	}
+	return attachments, status
+}
+
+// UploadAttachments uploads files as attachments to a document
+// POST /docs/{docId}/attachments
+// Returns array of attachment IDs
+func UploadAttachments(docId string, filePaths []string) (UploadAttachmentsResponse, int) {
+	var result UploadAttachmentsResponse
+
+	if len(filePaths) == 0 {
+		return result, http.StatusBadRequest
+	}
+
+	endpoint := fmt.Sprintf("docs/%s/attachments", docId)
+	response, status := httpMultipartUpload(endpoint, "upload", filePaths)
+
+	if status == http.StatusOK {
+		json.Unmarshal([]byte(response), &result)
+	}
+	return result, status
+}
+
+// UploadAttachmentsFromReader uploads an attachment from an io.Reader
+// POST /docs/{docId}/attachments
+// Returns array of attachment IDs
+func UploadAttachmentsFromReader(docId string, fileName string, reader io.Reader) (UploadAttachmentsResponse, int) {
+	var result UploadAttachmentsResponse
+
+	endpoint := fmt.Sprintf("docs/%s/attachments", docId)
+	response, status := httpMultipartUploadReader(endpoint, "upload", fileName, reader)
+
+	if status == http.StatusOK {
+		json.Unmarshal([]byte(response), &result)
+	}
+	return result, status
+}
+
+// GetAttachmentMetadata retrieves metadata for a specific attachment
+// GET /docs/{docId}/attachments/{attachmentId}
+func GetAttachmentMetadata(docId string, attachmentId int) (AttachmentMetadata, int) {
+	attachment := AttachmentMetadata{}
+	url := fmt.Sprintf("docs/%s/attachments/%d", docId, attachmentId)
+	response, status := httpGet(url, "")
+	if status == http.StatusOK {
+		json.Unmarshal([]byte(response), &attachment)
+	}
+	return attachment, status
+}
+
+// DownloadAttachment downloads the content of an attachment
+// GET /docs/{docId}/attachments/{attachmentId}/download
+// Returns the raw bytes and content type
+func DownloadAttachment(docId string, attachmentId int) ([]byte, string, int) {
+	url := fmt.Sprintf("docs/%s/attachments/%d/download", docId, attachmentId)
+	return httpGetBinary(url)
+}
+
+// DownloadAttachmentToFile downloads an attachment and saves it to a file
+func DownloadAttachmentToFile(docId string, attachmentId int, destPath string) error {
+	content, _, status := DownloadAttachment(docId, attachmentId)
+	if status != http.StatusOK {
+		return fmt.Errorf("failed to download attachment: HTTP %d", status)
+	}
+
+	return os.WriteFile(destPath, content, 0644)
+}
+
+// RestoreAttachments uploads a .tar archive to restore missing attachments
+// POST /docs/{docId}/attachments/archive
+func RestoreAttachments(docId string, tarFilePath string) (RestoreAttachmentsResponse, int) {
+	var result RestoreAttachmentsResponse
+
+	endpoint := fmt.Sprintf("docs/%s/attachments/archive", docId)
+	response, status := httpMultipartUpload(endpoint, "upload", []string{tarFilePath})
+
+	if status == http.StatusOK {
+		json.Unmarshal([]byte(response), &result)
+	}
+	return result, status
+}
+
+// RestoreAttachmentsFromReader uploads attachments archive from an io.Reader
+// POST /docs/{docId}/attachments/archive
+func RestoreAttachmentsFromReader(docId string, fileName string, reader io.Reader) (RestoreAttachmentsResponse, int) {
+	var result RestoreAttachmentsResponse
+
+	endpoint := fmt.Sprintf("docs/%s/attachments/archive", docId)
+	response, status := httpMultipartUploadReader(endpoint, "upload", fileName, reader)
+
+	if status == http.StatusOK {
+		json.Unmarshal([]byte(response), &result)
+	}
+	return result, status
+}
+
+// DeleteUnusedAttachments removes attachments not referenced by any cell
+// POST /docs/{docId}/attachments/removeUnused
+func DeleteUnusedAttachments(docId string) (string, int) {
+	url := fmt.Sprintf("docs/%s/attachments/removeUnused", docId)
+	return httpPost(url, "")
 }
 
 // Webhook API Types
