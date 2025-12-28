@@ -987,6 +987,7 @@ func SCIMBulkFromJSON(jsonBody string) (SCIMBulkResponse, int) {
 
 	return SCIMBulk(request)
 }
+
 // Retrieves the list of webhooks for a document
 func GetDocWebhooks(docId string) []Webhook {
 	webhooks := Webhooks{}
@@ -994,4 +995,368 @@ func GetDocWebhooks(docId string) []Webhook {
 	response, _ := httpGet(url, "")
 	json.Unmarshal([]byte(response), &webhooks)
 	return webhooks.Webhooks
+}
+
+// =============================================================================
+// SCIM v2 User Management APIs
+// =============================================================================
+
+// SCIMUser represents a user in SCIM v2 format
+type SCIMUser struct {
+	Schemas     []string        `json:"schemas"`
+	Id          string          `json:"id,omitempty"`
+	ExternalId  string          `json:"externalId,omitempty"`
+	UserName    string          `json:"userName"`
+	Name        *SCIMName       `json:"name,omitempty"`
+	DisplayName string          `json:"displayName,omitempty"`
+	Emails      []SCIMEmail     `json:"emails,omitempty"`
+	Active      bool            `json:"active"`
+	Meta        *SCIMUserMeta   `json:"meta,omitempty"`
+	Photos      []SCIMPhoto     `json:"photos,omitempty"`
+}
+
+// SCIMName represents a user's name in SCIM format
+type SCIMName struct {
+	Formatted  string `json:"formatted,omitempty"`
+	FamilyName string `json:"familyName,omitempty"`
+	GivenName  string `json:"givenName,omitempty"`
+}
+
+// SCIMEmail represents an email in SCIM format
+type SCIMEmail struct {
+	Value   string `json:"value"`
+	Type    string `json:"type,omitempty"`
+	Primary bool   `json:"primary,omitempty"`
+}
+
+// SCIMPhoto represents a photo in SCIM format
+type SCIMPhoto struct {
+	Value   string `json:"value"`
+	Type    string `json:"type,omitempty"`
+	Primary bool   `json:"primary,omitempty"`
+}
+
+// SCIMUserMeta represents metadata about a SCIM resource
+type SCIMUserMeta struct {
+	ResourceType string `json:"resourceType,omitempty"`
+	Created      string `json:"created,omitempty"`
+	LastModified string `json:"lastModified,omitempty"`
+	Location     string `json:"location,omitempty"`
+	Version      string `json:"version,omitempty"`
+}
+
+// SCIMListResponse represents a SCIM list response with pagination
+type SCIMListResponse struct {
+	Schemas      []string    `json:"schemas"`
+	TotalResults int         `json:"totalResults"`
+	StartIndex   int         `json:"startIndex,omitempty"`
+	ItemsPerPage int         `json:"itemsPerPage,omitempty"`
+	Resources    []SCIMUser  `json:"Resources"`
+}
+
+// SCIMSearchRequest represents a SCIM search request
+type SCIMSearchRequest struct {
+	Schemas    []string `json:"schemas,omitempty"`
+	Filter     string   `json:"filter,omitempty"`
+	StartIndex int      `json:"startIndex,omitempty"`
+	Count      int      `json:"count,omitempty"`
+}
+
+const (
+	SCIMUserSchema         = "urn:ietf:params:scim:schemas:core:2.0:User"
+	SCIMListResponseSchema = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+	SCIMSearchRequestSchema = "urn:ietf:params:scim:api:messages:2.0:SearchRequest"
+)
+
+// SCIMGetUsers retrieves all SCIM users with optional pagination
+// GET /scim/v2/Users
+func SCIMGetUsers(startIndex int, count int) (SCIMListResponse, int) {
+	response := SCIMListResponse{
+		Schemas:   []string{SCIMListResponseSchema},
+		Resources: []SCIMUser{},
+	}
+
+	url := "scim/v2/Users"
+	params := make(map[string]string)
+	if startIndex > 0 {
+		params["startIndex"] = strconv.Itoa(startIndex)
+	}
+	if count > 0 {
+		params["count"] = strconv.Itoa(count)
+	}
+	if len(params) > 0 {
+		url += buildRecordsQueryParams(params)
+	}
+
+	respBody, statusCode := httpGet(url, "")
+	if statusCode == http.StatusOK {
+		json.Unmarshal([]byte(respBody), &response)
+	}
+	return response, statusCode
+}
+
+// SCIMGetUser retrieves a single SCIM user by ID
+// GET /scim/v2/Users/{userId}
+func SCIMGetUser(userId string) (SCIMUser, int) {
+	user := SCIMUser{}
+	url := fmt.Sprintf("scim/v2/Users/%s", userId)
+
+	respBody, statusCode := httpGet(url, "")
+	if statusCode == http.StatusOK {
+		json.Unmarshal([]byte(respBody), &user)
+	}
+	return user, statusCode
+}
+
+// SCIMCreateUser creates a new user via SCIM
+// POST /scim/v2/Users
+func SCIMCreateUser(user SCIMUser) (SCIMUser, int) {
+	result := SCIMUser{}
+
+	// Ensure proper schema
+	if len(user.Schemas) == 0 {
+		user.Schemas = []string{SCIMUserSchema}
+	}
+
+	bodyJSON, err := json.Marshal(user)
+	if err != nil {
+		return result, -1
+	}
+
+	respBody, statusCode := httpPost("scim/v2/Users", string(bodyJSON))
+	if statusCode == http.StatusOK || statusCode == http.StatusCreated {
+		json.Unmarshal([]byte(respBody), &result)
+	}
+	return result, statusCode
+}
+
+// SCIMUpdateUser fully replaces a user via SCIM
+// PUT /scim/v2/Users/{userId}
+func SCIMUpdateUser(userId string, user SCIMUser) (SCIMUser, int) {
+	result := SCIMUser{}
+
+	// Ensure proper schema
+	if len(user.Schemas) == 0 {
+		user.Schemas = []string{SCIMUserSchema}
+	}
+
+	bodyJSON, err := json.Marshal(user)
+	if err != nil {
+		return result, -1
+	}
+
+	url := fmt.Sprintf("scim/v2/Users/%s", userId)
+	respBody, statusCode := httpPut(url, string(bodyJSON))
+	if statusCode == http.StatusOK {
+		json.Unmarshal([]byte(respBody), &result)
+	}
+	return result, statusCode
+}
+
+// SCIMPatchUser partially updates a user via SCIM
+// PATCH /scim/v2/Users/{userId}
+func SCIMPatchUser(userId string, operations []map[string]interface{}) (SCIMUser, int) {
+	result := SCIMUser{}
+
+	patch := map[string]interface{}{
+		"schemas":    []string{"urn:ietf:params:scim:api:messages:2.0:PatchOp"},
+		"Operations": operations,
+	}
+
+	bodyJSON, err := json.Marshal(patch)
+	if err != nil {
+		return result, -1
+	}
+
+	url := fmt.Sprintf("scim/v2/Users/%s", userId)
+	respBody, statusCode := httpPatch(url, string(bodyJSON))
+	if statusCode == http.StatusOK {
+		json.Unmarshal([]byte(respBody), &result)
+	}
+	return result, statusCode
+}
+
+// SCIMDeleteUser deletes a user via SCIM
+// DELETE /scim/v2/Users/{userId}
+func SCIMDeleteUser(userId string) (string, int) {
+	url := fmt.Sprintf("scim/v2/Users/%s", userId)
+	respBody, statusCode := httpDelete(url, "")
+	return respBody, statusCode
+}
+
+// SCIMSearchUsers performs a search for users
+// POST /scim/v2/Users/.search
+func SCIMSearchUsers(filter string, startIndex int, count int) (SCIMListResponse, int) {
+	response := SCIMListResponse{
+		Schemas:   []string{SCIMListResponseSchema},
+		Resources: []SCIMUser{},
+	}
+
+	request := SCIMSearchRequest{
+		Schemas: []string{SCIMSearchRequestSchema},
+		Filter:  filter,
+	}
+	if startIndex > 0 {
+		request.StartIndex = startIndex
+	}
+	if count > 0 {
+		request.Count = count
+	}
+
+	bodyJSON, err := json.Marshal(request)
+	if err != nil {
+		return response, -1
+	}
+
+	respBody, statusCode := httpPost("scim/v2/Users/.search", string(bodyJSON))
+	if statusCode == http.StatusOK {
+		json.Unmarshal([]byte(respBody), &response)
+	}
+	return response, statusCode
+}
+
+// SCIMGetMe retrieves the current user's SCIM profile
+// GET /scim/v2/Me
+func SCIMGetMe() (SCIMUser, int) {
+	user := SCIMUser{}
+	respBody, statusCode := httpGet("scim/v2/Me", "")
+	if statusCode == http.StatusOK {
+		json.Unmarshal([]byte(respBody), &user)
+	}
+	return user, statusCode
+}
+
+// =============================================================================
+// Service Account Management APIs
+// =============================================================================
+
+// ServiceAccount represents a Grist service account
+type ServiceAccount struct {
+	Id          int    `json:"id"`
+	Login       string `json:"login,omitempty"`
+	Label       string `json:"label,omitempty"`
+	Description string `json:"description,omitempty"`
+	ExpiresAt   string `json:"expiresAt,omitempty"`
+	HasValidKey bool   `json:"hasValidKey,omitempty"`
+}
+
+// ServiceAccountWithKey represents a service account with its API key
+type ServiceAccountWithKey struct {
+	ServiceAccount
+	ApiKey string `json:"apiKey,omitempty"`
+}
+
+// ServiceAccountCreate represents the request body for creating a service account
+type ServiceAccountCreate struct {
+	Label       string `json:"label,omitempty"`
+	Description string `json:"description,omitempty"`
+	ExpiresAt   string `json:"expiresAt,omitempty"`
+}
+
+// GetServiceAccounts retrieves all service accounts for the current user
+// GET /service-accounts
+func GetServiceAccounts() ([]ServiceAccount, int) {
+	accounts := []ServiceAccount{}
+	respBody, statusCode := httpGet("service-accounts", "")
+	if statusCode == http.StatusOK {
+		json.Unmarshal([]byte(respBody), &accounts)
+	}
+	return accounts, statusCode
+}
+
+// GetServiceAccount retrieves a specific service account by ID
+// GET /service-accounts/{saId}
+func GetServiceAccount(saId int) (ServiceAccount, int) {
+	account := ServiceAccount{}
+	url := fmt.Sprintf("service-accounts/%d", saId)
+	respBody, statusCode := httpGet(url, "")
+	if statusCode == http.StatusOK {
+		json.Unmarshal([]byte(respBody), &account)
+	}
+	return account, statusCode
+}
+
+// CreateServiceAccount creates a new service account
+// POST /service-accounts
+func CreateServiceAccount(request ServiceAccountCreate) (ServiceAccountWithKey, int) {
+	result := ServiceAccountWithKey{}
+
+	bodyJSON, err := json.Marshal(request)
+	if err != nil {
+		return result, -1
+	}
+
+	respBody, statusCode := httpPost("service-accounts", string(bodyJSON))
+	if statusCode == http.StatusOK || statusCode == http.StatusCreated {
+		json.Unmarshal([]byte(respBody), &result)
+	}
+	return result, statusCode
+}
+
+// UpdateServiceAccount modifies an existing service account
+// PATCH /service-accounts/{saId}
+func UpdateServiceAccount(saId int, request ServiceAccountCreate) (ServiceAccount, int) {
+	result := ServiceAccount{}
+
+	bodyJSON, err := json.Marshal(request)
+	if err != nil {
+		return result, -1
+	}
+
+	url := fmt.Sprintf("service-accounts/%d", saId)
+	respBody, statusCode := httpPatch(url, string(bodyJSON))
+	if statusCode == http.StatusOK {
+		json.Unmarshal([]byte(respBody), &result)
+	}
+	return result, statusCode
+}
+
+// DeleteServiceAccount deletes a service account
+// DELETE /service-accounts/{saId}
+func DeleteServiceAccount(saId int) (string, int) {
+	url := fmt.Sprintf("service-accounts/%d", saId)
+	respBody, statusCode := httpDelete(url, "")
+	return respBody, statusCode
+}
+
+// RegenerateServiceAccountKey generates a new API key for a service account
+// POST /service-accounts/{saId}/apikey
+func RegenerateServiceAccountKey(saId int) (ServiceAccountWithKey, int) {
+	result := ServiceAccountWithKey{}
+	url := fmt.Sprintf("service-accounts/%d/apikey", saId)
+	respBody, statusCode := httpPost(url, "")
+	if statusCode == http.StatusOK || statusCode == http.StatusCreated {
+		json.Unmarshal([]byte(respBody), &result)
+	}
+	return result, statusCode
+}
+
+// DeleteServiceAccountKey deletes the API key for a service account
+// DELETE /service-accounts/{saId}/apikey
+func DeleteServiceAccountKey(saId int) (string, int) {
+	url := fmt.Sprintf("service-accounts/%d/apikey", saId)
+	respBody, statusCode := httpDelete(url, "")
+	return respBody, statusCode
+}
+
+// =============================================================================
+// User Enable/Disable APIs
+// =============================================================================
+
+// DisableUser disables a user account
+// POST /users/{userId}/disable
+// Disabled users cannot log in and lose access to all pages including public ones
+func DisableUser(userId int) (string, int) {
+	url := fmt.Sprintf("users/%d/disable", userId)
+	respBody, statusCode := httpPost(url, "")
+	return respBody, statusCode
+}
+
+// EnableUser enables a previously disabled user account
+// POST /users/{userId}/enable
+// Restores user access including API access
+func EnableUser(userId int) (string, int) {
+	url := fmt.Sprintf("users/%d/enable", userId)
+	respBody, statusCode := httpPost(url, "")
+	return respBody, statusCode
 }

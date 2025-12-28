@@ -682,3 +682,635 @@ func TestSCIMBulk_PUTOperation(t *testing.T) {
 		t.Errorf("Expected operation status '200', got %s", response.Operations[0].Status)
 	}
 }
+
+// =============================================================================
+// SCIM User Management API Tests
+// =============================================================================
+
+func TestSCIMGetUsers(t *testing.T) {
+	expectedResponse := SCIMListResponse{
+		Schemas:      []string{SCIMListResponseSchema},
+		TotalResults: 2,
+		StartIndex:   1,
+		ItemsPerPage: 10,
+		Resources: []SCIMUser{
+			{
+				Schemas:  []string{SCIMUserSchema},
+				Id:       "1",
+				UserName: "alice@example.com",
+				Active:   true,
+			},
+			{
+				Schemas:  []string{SCIMUserSchema},
+				Id:       "2",
+				UserName: "bob@example.com",
+				Active:   true,
+			},
+		},
+	}
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("Expected GET request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/scim/v2/Users") {
+			t.Errorf("Expected SCIM Users path, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(expectedResponse)
+	})
+	defer cleanup()
+
+	response, status := SCIMGetUsers(0, 0)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if len(response.Resources) != 2 {
+		t.Errorf("Expected 2 users, got %d", len(response.Resources))
+	}
+	if response.Resources[0].UserName != "alice@example.com" {
+		t.Errorf("Expected alice@example.com, got %s", response.Resources[0].UserName)
+	}
+}
+
+func TestSCIMGetUsersWithPagination(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if query.Get("startIndex") != "10" {
+			t.Errorf("Expected startIndex=10, got %s", query.Get("startIndex"))
+		}
+		if query.Get("count") != "25" {
+			t.Errorf("Expected count=25, got %s", query.Get("count"))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SCIMListResponse{
+			Schemas:   []string{SCIMListResponseSchema},
+			Resources: []SCIMUser{},
+		})
+	})
+	defer cleanup()
+
+	_, status := SCIMGetUsers(10, 25)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+}
+
+func TestSCIMGetUser(t *testing.T) {
+	expectedUser := SCIMUser{
+		Schemas:     []string{SCIMUserSchema},
+		Id:          "123",
+		UserName:    "test@example.com",
+		DisplayName: "Test User",
+		Active:      true,
+		Emails: []SCIMEmail{
+			{Value: "test@example.com", Primary: true},
+		},
+	}
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("Expected GET request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/scim/v2/Users/123") {
+			t.Errorf("Expected user 123 path, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(expectedUser)
+	})
+	defer cleanup()
+
+	user, status := SCIMGetUser("123")
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if user.Id != "123" {
+		t.Errorf("Expected user ID 123, got %s", user.Id)
+	}
+	if user.UserName != "test@example.com" {
+		t.Errorf("Expected test@example.com, got %s", user.UserName)
+	}
+}
+
+func TestSCIMCreateUser(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+
+		var body SCIMUser
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("Failed to decode request body: %v", err)
+		}
+		if body.UserName != "newuser@example.com" {
+			t.Errorf("Expected userName newuser@example.com, got %s", body.UserName)
+		}
+		if len(body.Schemas) == 0 || body.Schemas[0] != SCIMUserSchema {
+			t.Errorf("Expected User schema, got %v", body.Schemas)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		body.Id = "456"
+		json.NewEncoder(w).Encode(body)
+	})
+	defer cleanup()
+
+	newUser := SCIMUser{
+		UserName: "newuser@example.com",
+		Emails: []SCIMEmail{
+			{Value: "newuser@example.com", Primary: true},
+		},
+		Active: true,
+	}
+
+	result, status := SCIMCreateUser(newUser)
+	if status != http.StatusCreated {
+		t.Errorf("Expected status 201, got %d", status)
+	}
+	if result.Id != "456" {
+		t.Errorf("Expected user ID 456, got %s", result.Id)
+	}
+}
+
+func TestSCIMUpdateUser(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PUT" {
+			t.Errorf("Expected PUT request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/scim/v2/Users/123") {
+			t.Errorf("Expected user 123 path, got %s", r.URL.Path)
+		}
+
+		var body SCIMUser
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("Failed to decode request body: %v", err)
+		}
+		if body.DisplayName != "Updated User" {
+			t.Errorf("Expected displayName 'Updated User', got %s", body.DisplayName)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		body.Id = "123"
+		json.NewEncoder(w).Encode(body)
+	})
+	defer cleanup()
+
+	updatedUser := SCIMUser{
+		UserName:    "test@example.com",
+		DisplayName: "Updated User",
+		Active:      true,
+	}
+
+	result, status := SCIMUpdateUser("123", updatedUser)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if result.DisplayName != "Updated User" {
+		t.Errorf("Expected displayName 'Updated User', got %s", result.DisplayName)
+	}
+}
+
+func TestSCIMPatchUser(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PATCH" {
+			t.Errorf("Expected PATCH request, got %s", r.Method)
+		}
+
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("Failed to decode request body: %v", err)
+		}
+
+		schemas := body["schemas"].([]interface{})
+		if len(schemas) == 0 || schemas[0] != "urn:ietf:params:scim:api:messages:2.0:PatchOp" {
+			t.Errorf("Expected PatchOp schema, got %v", schemas)
+		}
+
+		ops := body["Operations"].([]interface{})
+		if len(ops) != 1 {
+			t.Errorf("Expected 1 operation, got %d", len(ops))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SCIMUser{
+			Id:       "123",
+			UserName: "test@example.com",
+			Active:   false,
+		})
+	})
+	defer cleanup()
+
+	operations := []map[string]interface{}{
+		{
+			"op":    "replace",
+			"path":  "active",
+			"value": false,
+		},
+	}
+
+	result, status := SCIMPatchUser("123", operations)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if result.Active != false {
+		t.Error("Expected user to be inactive")
+	}
+}
+
+func TestSCIMDeleteUser(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "DELETE" {
+			t.Errorf("Expected DELETE request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/scim/v2/Users/123") {
+			t.Errorf("Expected user 123 path, got %s", r.URL.Path)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	})
+	defer cleanup()
+
+	_, status := SCIMDeleteUser("123")
+	if status != http.StatusNoContent {
+		t.Errorf("Expected status 204, got %d", status)
+	}
+}
+
+func TestSCIMSearchUsers(t *testing.T) {
+	expectedResponse := SCIMListResponse{
+		Schemas:      []string{SCIMListResponseSchema},
+		TotalResults: 1,
+		Resources: []SCIMUser{
+			{
+				Schemas:  []string{SCIMUserSchema},
+				Id:       "1",
+				UserName: "alice@example.com",
+				Active:   true,
+			},
+		},
+	}
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/scim/v2/Users/.search") {
+			t.Errorf("Expected search path, got %s", r.URL.Path)
+		}
+
+		var body SCIMSearchRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("Failed to decode request body: %v", err)
+		}
+		if body.Filter != "userName eq \"alice@example.com\"" {
+			t.Errorf("Expected filter, got %s", body.Filter)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(expectedResponse)
+	})
+	defer cleanup()
+
+	response, status := SCIMSearchUsers("userName eq \"alice@example.com\"", 0, 0)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if len(response.Resources) != 1 {
+		t.Errorf("Expected 1 user, got %d", len(response.Resources))
+	}
+}
+
+func TestSCIMGetMe(t *testing.T) {
+	expectedUser := SCIMUser{
+		Schemas:     []string{SCIMUserSchema},
+		Id:          "current",
+		UserName:    "me@example.com",
+		DisplayName: "Current User",
+		Active:      true,
+	}
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("Expected GET request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/scim/v2/Me") {
+			t.Errorf("Expected Me path, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(expectedUser)
+	})
+	defer cleanup()
+
+	user, status := SCIMGetMe()
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if user.UserName != "me@example.com" {
+		t.Errorf("Expected me@example.com, got %s", user.UserName)
+	}
+}
+
+// =============================================================================
+// Service Account API Tests
+// =============================================================================
+
+func TestGetServiceAccounts(t *testing.T) {
+	expectedAccounts := []ServiceAccount{
+		{Id: 1, Label: "CI/CD Bot", Description: "For automation", HasValidKey: true},
+		{Id: 2, Label: "Backup Service", HasValidKey: false},
+	}
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("Expected GET request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/service-accounts") {
+			t.Errorf("Expected service-accounts path, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(expectedAccounts)
+	})
+	defer cleanup()
+
+	accounts, status := GetServiceAccounts()
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if len(accounts) != 2 {
+		t.Errorf("Expected 2 accounts, got %d", len(accounts))
+	}
+	if accounts[0].Label != "CI/CD Bot" {
+		t.Errorf("Expected 'CI/CD Bot', got %s", accounts[0].Label)
+	}
+}
+
+func TestGetServiceAccount(t *testing.T) {
+	expectedAccount := ServiceAccount{
+		Id:          1,
+		Label:       "CI/CD Bot",
+		Description: "For automation pipelines",
+		HasValidKey: true,
+	}
+
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("Expected GET request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/service-accounts/1") {
+			t.Errorf("Expected service-accounts/1 path, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(expectedAccount)
+	})
+	defer cleanup()
+
+	account, status := GetServiceAccount(1)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if account.Id != 1 {
+		t.Errorf("Expected ID 1, got %d", account.Id)
+	}
+	if account.Description != "For automation pipelines" {
+		t.Errorf("Expected description, got %s", account.Description)
+	}
+}
+
+func TestCreateServiceAccount(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+
+		var body ServiceAccountCreate
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("Failed to decode request body: %v", err)
+		}
+		if body.Label != "New Bot" {
+			t.Errorf("Expected label 'New Bot', got %s", body.Label)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(ServiceAccountWithKey{
+			ServiceAccount: ServiceAccount{
+				Id:          3,
+				Label:       body.Label,
+				Description: body.Description,
+				HasValidKey: true,
+			},
+			ApiKey: "new-api-key-12345",
+		})
+	})
+	defer cleanup()
+
+	request := ServiceAccountCreate{
+		Label:       "New Bot",
+		Description: "A new service account",
+	}
+
+	result, status := CreateServiceAccount(request)
+	if status != http.StatusCreated {
+		t.Errorf("Expected status 201, got %d", status)
+	}
+	if result.Id != 3 {
+		t.Errorf("Expected ID 3, got %d", result.Id)
+	}
+	if result.ApiKey != "new-api-key-12345" {
+		t.Errorf("Expected API key, got %s", result.ApiKey)
+	}
+}
+
+func TestUpdateServiceAccount(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "PATCH" {
+			t.Errorf("Expected PATCH request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/service-accounts/1") {
+			t.Errorf("Expected service-accounts/1 path, got %s", r.URL.Path)
+		}
+
+		var body ServiceAccountCreate
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("Failed to decode request body: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ServiceAccount{
+			Id:          1,
+			Label:       body.Label,
+			Description: body.Description,
+		})
+	})
+	defer cleanup()
+
+	request := ServiceAccountCreate{
+		Label:       "Updated Bot",
+		Description: "Updated description",
+	}
+
+	result, status := UpdateServiceAccount(1, request)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if result.Label != "Updated Bot" {
+		t.Errorf("Expected 'Updated Bot', got %s", result.Label)
+	}
+}
+
+func TestDeleteServiceAccount(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "DELETE" {
+			t.Errorf("Expected DELETE request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/service-accounts/1") {
+			t.Errorf("Expected service-accounts/1 path, got %s", r.URL.Path)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+	defer cleanup()
+
+	_, status := DeleteServiceAccount(1)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+}
+
+func TestRegenerateServiceAccountKey(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/service-accounts/1/apikey") {
+			t.Errorf("Expected apikey path, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ServiceAccountWithKey{
+			ServiceAccount: ServiceAccount{
+				Id:          1,
+				Label:       "CI/CD Bot",
+				HasValidKey: true,
+			},
+			ApiKey: "regenerated-key-67890",
+		})
+	})
+	defer cleanup()
+
+	result, status := RegenerateServiceAccountKey(1)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+	if result.ApiKey != "regenerated-key-67890" {
+		t.Errorf("Expected regenerated key, got %s", result.ApiKey)
+	}
+}
+
+func TestDeleteServiceAccountKey(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "DELETE" {
+			t.Errorf("Expected DELETE request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/service-accounts/1/apikey") {
+			t.Errorf("Expected apikey path, got %s", r.URL.Path)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+	defer cleanup()
+
+	_, status := DeleteServiceAccountKey(1)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+}
+
+// =============================================================================
+// User Enable/Disable API Tests
+// =============================================================================
+
+func TestDisableUser(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/users/123/disable") {
+			t.Errorf("Expected disable path, got %s", r.URL.Path)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+	defer cleanup()
+
+	_, status := DisableUser(123)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+}
+
+func TestEnableUser(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+		if !contains(r.URL.Path, "/users/123/enable") {
+			t.Errorf("Expected enable path, got %s", r.URL.Path)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+	defer cleanup()
+
+	_, status := EnableUser(123)
+	if status != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", status)
+	}
+}
+
+func TestDisableUser_NotFound(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "User not found"})
+	})
+	defer cleanup()
+
+	_, status := DisableUser(999)
+	if status != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d", status)
+	}
+}
+
+func TestDisableUser_Forbidden(t *testing.T) {
+	_, cleanup := setupMockServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Access denied"})
+	})
+	defer cleanup()
+
+	_, status := DisableUser(123)
+	if status != http.StatusForbidden {
+		t.Errorf("Expected status 403, got %d", status)
+	}
+}
+
+// Helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr, 0))
+}
+
+func containsAt(s, substr string, start int) bool {
+	for i := start; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
