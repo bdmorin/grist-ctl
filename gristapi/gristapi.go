@@ -87,6 +87,72 @@ type TableRows struct {
 	Id []uint `json:"id"`
 }
 
+// Record represents a single record with its fields
+type Record struct {
+	Id     int                    `json:"id,omitempty"`
+	Fields map[string]interface{} `json:"fields"`
+}
+
+// RecordsList represents a list of records returned by GET /records
+type RecordsList struct {
+	Records []Record `json:"records"`
+}
+
+// RecordWithRequire represents a record for upsert operations
+type RecordWithRequire struct {
+	Require map[string]interface{} `json:"require"`
+	Fields  map[string]interface{} `json:"fields,omitempty"`
+}
+
+// RecordsWithRequire represents records for PUT (upsert) operations
+type RecordsWithRequire struct {
+	Records []RecordWithRequire `json:"records"`
+}
+
+// RecordsWithoutId represents records without IDs (for POST/add operations)
+type RecordsWithoutId struct {
+	Records []struct {
+		Fields map[string]interface{} `json:"fields"`
+	} `json:"records"`
+}
+
+// RecordsWithoutFields represents the response from adding records (IDs only)
+type RecordsWithoutFields struct {
+	Records []struct {
+		Id int `json:"id"`
+	} `json:"records"`
+}
+
+// RecordsDeleteRequest represents the request body for deleting records
+type RecordsDeleteRequest []int
+
+// GetRecordsOptions contains query parameters for fetching records
+type GetRecordsOptions struct {
+	Filter map[string][]interface{} // Filter by column values
+	Sort   string                   // Column(s) to sort by, e.g. "name,-age"
+	Limit  int                      // Maximum records to return
+	Hidden bool                     // Include hidden columns
+}
+
+// AddRecordsOptions contains query parameters for adding records
+type AddRecordsOptions struct {
+	NoParse bool // Don't parse strings into column types
+}
+
+// UpdateRecordsOptions contains query parameters for updating records
+type UpdateRecordsOptions struct {
+	NoParse bool // Don't parse strings into column types
+}
+
+// UpsertRecordsOptions contains query parameters for upserting records
+type UpsertRecordsOptions struct {
+	OnMany            string // How to handle multiple matches: "first", "none", "all"
+	NoAdd             bool   // Don't add new records
+	NoUpdate          bool   // Don't update existing records
+	AllowEmptyRequire bool   // Allow matching all records with empty require
+	NoParse           bool   // Don't parse strings into column types
+}
+
 // Grist's user role
 type UserRole struct {
 	Email string
@@ -197,6 +263,14 @@ func httpPatch(myRequest string, data string) (string, int) {
 func httpDelete(myRequest string, data string) (string, int) {
 	dataBody := bytes.NewBuffer([]byte(data))
 	body, status := httpRequest("DELETE", myRequest, dataBody)
+	return body, status
+}
+
+// Send an HTTP PUT request to Grist's REST API with a data load
+// Return the response body
+func httpPut(myRequest string, data string) (string, int) {
+	dataBody := bytes.NewBuffer([]byte(data))
+	body, status := httpRequest("PUT", myRequest, dataBody)
 	return body, status
 }
 
@@ -511,4 +585,163 @@ func GetOrgUsageSummary(orgId string) OrgUsage {
 	response, _ := httpGet("orgs/"+orgId+"/usage", "")
 	json.Unmarshal([]byte(response), &usage)
 	return usage
+}
+
+// buildRecordsQueryParams builds the query string for records API endpoints
+func buildRecordsQueryParams(params map[string]string) string {
+	if len(params) == 0 {
+		return ""
+	}
+	parts := []string{}
+	for key, value := range params {
+		if value != "" {
+			parts = append(parts, fmt.Sprintf("%s=%s", key, value))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "?" + strings.Join(parts, "&")
+}
+
+// GetRecords fetches records from a table
+// GET /docs/{docId}/tables/{tableId}/records
+func GetRecords(docId string, tableId string, options *GetRecordsOptions) (RecordsList, int) {
+	records := RecordsList{}
+	params := make(map[string]string)
+
+	if options != nil {
+		if options.Filter != nil {
+			filterJSON, err := json.Marshal(options.Filter)
+			if err == nil {
+				params["filter"] = string(filterJSON)
+			}
+		}
+		if options.Sort != "" {
+			params["sort"] = options.Sort
+		}
+		if options.Limit > 0 {
+			params["limit"] = strconv.Itoa(options.Limit)
+		}
+		if options.Hidden {
+			params["hidden"] = "true"
+		}
+	}
+
+	url := fmt.Sprintf("docs/%s/tables/%s/records%s", docId, tableId, buildRecordsQueryParams(params))
+	response, status := httpGet(url, "")
+	if status == http.StatusOK {
+		json.Unmarshal([]byte(response), &records)
+	}
+	return records, status
+}
+
+// AddRecords adds records to a table
+// POST /docs/{docId}/tables/{tableId}/records
+func AddRecords(docId string, tableId string, records []map[string]interface{}, options *AddRecordsOptions) (RecordsWithoutFields, int) {
+	result := RecordsWithoutFields{}
+	params := make(map[string]string)
+
+	if options != nil && options.NoParse {
+		params["noparse"] = "true"
+	}
+
+	// Build request body
+	body := struct {
+		Records []struct {
+			Fields map[string]interface{} `json:"fields"`
+		} `json:"records"`
+	}{}
+	for _, fields := range records {
+		body.Records = append(body.Records, struct {
+			Fields map[string]interface{} `json:"fields"`
+		}{Fields: fields})
+	}
+
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		return result, -1
+	}
+
+	url := fmt.Sprintf("docs/%s/tables/%s/records%s", docId, tableId, buildRecordsQueryParams(params))
+	response, status := httpPost(url, string(bodyJSON))
+	if status == http.StatusOK {
+		json.Unmarshal([]byte(response), &result)
+	}
+	return result, status
+}
+
+// UpdateRecords modifies records in a table
+// PATCH /docs/{docId}/tables/{tableId}/records
+func UpdateRecords(docId string, tableId string, records []Record, options *UpdateRecordsOptions) (string, int) {
+	params := make(map[string]string)
+
+	if options != nil && options.NoParse {
+		params["noparse"] = "true"
+	}
+
+	// Build request body
+	body := struct {
+		Records []Record `json:"records"`
+	}{Records: records}
+
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		return "", -1
+	}
+
+	url := fmt.Sprintf("docs/%s/tables/%s/records%s", docId, tableId, buildRecordsQueryParams(params))
+	response, status := httpPatch(url, string(bodyJSON))
+	return response, status
+}
+
+// UpsertRecords adds or updates records in a table (upsert)
+// PUT /docs/{docId}/tables/{tableId}/records
+func UpsertRecords(docId string, tableId string, records []RecordWithRequire, options *UpsertRecordsOptions) (string, int) {
+	params := make(map[string]string)
+
+	if options != nil {
+		if options.OnMany != "" {
+			params["onmany"] = options.OnMany
+		}
+		if options.NoAdd {
+			params["noadd"] = "true"
+		}
+		if options.NoUpdate {
+			params["noupdate"] = "true"
+		}
+		if options.AllowEmptyRequire {
+			params["allow_empty_require"] = "true"
+		}
+		if options.NoParse {
+			params["noparse"] = "true"
+		}
+	}
+
+	// Build request body
+	body := struct {
+		Records []RecordWithRequire `json:"records"`
+	}{Records: records}
+
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		return "", -1
+	}
+
+	url := fmt.Sprintf("docs/%s/tables/%s/records%s", docId, tableId, buildRecordsQueryParams(params))
+	response, status := httpPut(url, string(bodyJSON))
+	return response, status
+}
+
+// DeleteRecords deletes records from a table
+// POST /docs/{docId}/tables/{tableId}/records/delete
+func DeleteRecords(docId string, tableId string, recordIds []int) (string, int) {
+	bodyJSON, err := json.Marshal(recordIds)
+	if err != nil {
+		return "", -1
+	}
+
+	url := fmt.Sprintf("docs/%s/tables/%s/records/delete", docId, tableId)
+	response, status := httpPost(url, string(bodyJSON))
+	return response, status
 }
