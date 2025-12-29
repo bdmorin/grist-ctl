@@ -5,3 +5,7 @@ gristle
 gristle.exe
 .DS_Store
 .gitlab-ci.yml
+
+# Git worktrees (Crystal)
+/worktrees/
+/worktree-*/
