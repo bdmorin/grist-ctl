@@ -9,16 +9,15 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"github.com/bdmorin/gristle/common"
-	"github.com/bdmorin/gristle/gristapi"
 	"os"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/bdmorin/gristle/common"
+	"github.com/bdmorin/gristle/gristapi"
 	"github.com/go-gota/gota/dataframe"
 	"github.com/olekukonko/tablewriter"
 )
@@ -105,25 +104,41 @@ func Config() {
 
 	if common.Confirm(common.T("config.config")) {
 		var url string
-		urlSet := false
-		for urlSet == false {
-			url = common.Ask(common.T("config.urlSet"))
+		var err error
 
-			// Test if url is well formatted
-			urlOk, _ := regexp.MatchString(`^https?://.*[^/]$`, url)
-			urlSet = urlOk
+		// Keep asking until we get a valid URL
+		for {
+			rawURL := common.Ask(common.T("config.urlSet"))
+			url, err = common.NormalizeURL(rawURL)
+			if err != nil {
+				fmt.Printf("❌ Invalid URL: %v. Please try again.\n", err)
+				continue
+			}
+			break
 		}
-		var token = common.Ask(common.T("config.token"))
-		if common.Confirm(fmt.Sprintf("\n%s :\n- URL : %s\n- Token: %s\n%s ", common.T("config.new"), url, token, common.T("questions.isOk"))) {
+
+		// Securely read the API token (no echo)
+		token := common.AskSecure(common.T("config.token"))
+
+		// Mask token in confirmation (show only first/last 4 chars)
+		maskedToken := "••••••••" // #nosec G101 - This is a display mask, not a credential
+		if len(token) > 8 {
+			maskedToken = token[:4] + "••••••••" + token[len(token)-4:]
+		}
+
+		if common.Confirm(fmt.Sprintf("\n%s :\n- URL : %s\n- Token: %s\n%s ", common.T("config.new"), url, maskedToken, common.T("questions.isOk"))) {
 			f, err := os.Create(configFile)
 			if err != nil {
 				fmt.Printf("%s %s (%s)", common.T("config.saveError"), configFile, err)
 				os.Exit(-1)
 			}
-			defer f.Close()
 			config := fmt.Sprintf("GRIST_URL=\"%s\"\nGRIST_TOKEN=\"%s\"\n", url, token)
-			f.WriteString(config)
-			f.Close()
+			if _, err := f.WriteString(config); err != nil {
+				fmt.Printf("Error writing config: %v\n", err)
+			}
+			if err := f.Close(); err != nil {
+				fmt.Printf("Error closing config file: %v\n", err)
+			}
 			fmt.Printf("%s %s\n", common.T("config.savedIn"), configFile)
 
 			// Test the configuration by connecting to the server
@@ -186,7 +201,7 @@ func ImportUsers() {
 		line := scanner.Text()
 		data := strings.Split(line, ";")
 		if len(data) == 4 {
-			var lineOk bool = true
+			lineOk := true
 			newUserAccess := userAccess{}
 			newUserAccess.Mail = data[0]
 			if !common.IsValidEmail(newUserAccess.Mail) {

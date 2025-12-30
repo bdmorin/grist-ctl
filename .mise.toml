@@ -1,0 +1,40 @@
+[tools]
+go = "1.24"
+"go:github.com/golangci/golangci-lint/cmd/golangci-lint" = "1.62.0"
+pre-commit = "4.0.1"
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run"
+
+[tasks."lint:fix"]
+description = "Run golangci-lint with auto-fix"
+run = "golangci-lint run --fix"
+
+[tasks.test]
+description = "Run tests with race detector"
+run = "go test -race -v ./..."
+
+[tasks.build]
+description = "Build gristle binary"
+run = "go build -o gristle ."
+
+[tasks.fmt]
+description = "Format Go code"
+run = "go fmt ./..."
+
+[tasks.vet]
+description = "Run go vet"
+run = "go vet ./..."
+
+[tasks.check]
+description = "Run all checks (fmt, lint, test)"
+depends = ["fmt", "lint", "test"]
+
+[tasks."pre-commit:install"]
+description = "Install pre-commit hooks"
+run = "pre-commit install"
+
+[tasks."pre-commit:run"]
+description = "Run pre-commit on all files"
+run = "pre-commit run --all-files"

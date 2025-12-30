@@ -5,6 +5,7 @@
 package gristapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -877,7 +878,7 @@ func TestDownloadAttachment(t *testing.T) {
 	if status != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", status)
 	}
-	if string(content) != string(expectedContent) {
+	if !bytes.Equal(content, expectedContent) {
 		t.Errorf("Expected content '%s', got '%s'", expectedContent, content)
 	}
 	if contentType != expectedContentType {
@@ -913,7 +914,7 @@ func TestDownloadAttachmentToFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read downloaded file: %v", err)
 	}
-	if string(content) != string(expectedContent) {
+	if !bytes.Equal(content, expectedContent) {
 		t.Errorf("Expected file content '%s', got '%s'", expectedContent, content)
 	}
 }

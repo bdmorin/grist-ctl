@@ -247,15 +247,18 @@ func httpRequest(action string, myRequest string, data *bytes.Buffer) (string, i
 	if err != nil {
 		errMsg := fmt.Sprintf("Error sending request %s: %s", url, err)
 		return errMsg, -10
-	} else {
-		defer resp.Body.Close()
-		// Read the HTTP response body
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			log.Printf("Error reading response %s: %s", url, err)
-		}
-		return string(body), resp.StatusCode
 	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("Error closing response body: %v", err)
+		}
+	}()
+	// Read the HTTP response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Error reading response %s: %s", url, err)
+	}
+	return string(body), resp.StatusCode
 }
 
 // Send an HTTP GET request to Grist's REST API
@@ -586,8 +589,14 @@ func ExportDocGrist(docId string, fileName string) {
 		if e != nil {
 			panic(e)
 		}
-		defer f.Close()
-		fmt.Fprintln(f, export)
+		defer func() {
+			if err := f.Close(); err != nil {
+				log.Printf("Error closing file: %v", err)
+			}
+		}()
+		if _, err := fmt.Fprintln(f, export); err != nil {
+			log.Printf("Error writing to file: %v", err)
+		}
 	}
 }
 
@@ -600,8 +609,14 @@ func ExportDocExcel(docId string, fileName string) {
 		if e != nil {
 			panic(e)
 		}
-		defer f.Close()
-		fmt.Fprintln(f, export)
+		defer func() {
+			if err := f.Close(); err != nil {
+				log.Printf("Error closing file: %v", err)
+			}
+		}()
+		if _, err := fmt.Fprintln(f, export); err != nil {
+			log.Printf("Error writing to file: %v", err)
+		}
 	}
 }
 
@@ -793,7 +808,7 @@ type SCIMBulkOperation struct {
 
 // SCIMBulkRequest represents a SCIM v2 bulk request
 type SCIMBulkRequest struct {
-	Schemas      []string            `json:"schemas"`               // Must include "urn:ietf:params:scim:api:messages:2.0:BulkRequest"
+	Schemas      []string            `json:"schemas"`                // Must include "urn:ietf:params:scim:api:messages:2.0:BulkRequest"
 	FailOnErrors int                 `json:"failOnErrors,omitempty"` // Number of errors before stopping (0 = unlimited)
 	Operations   []SCIMBulkOperation `json:"Operations"`
 }
@@ -855,7 +870,7 @@ func SCIMBulk(request SCIMBulkRequest) (SCIMBulkResponse, int) {
 
 		// Check if operation failed (status >= 400)
 		statusCode := 0
-		fmt.Sscanf(opResponse.Status, "%d", &statusCode)
+		_, _ = fmt.Sscanf(opResponse.Status, "%d", &statusCode) // Ignore error - statusCode stays 0 on parse failure
 		if statusCode >= 400 {
 			errorCount++
 			if request.FailOnErrors > 0 && errorCount >= request.FailOnErrors {
@@ -1004,7 +1019,6 @@ func httpMultipartUpload(endpoint string, fieldName string, files []string) (str
 		if err != nil {
 			return fmt.Sprintf("Error opening file %s: %s", filePath, err), -1
 		}
-		defer file.Close()
 
 		// Get filename from path
 		fileName := filepath.Base(filePath)
@@ -1012,12 +1026,19 @@ func httpMultipartUpload(endpoint string, fieldName string, files []string) (str
 		// Create form file field
 		part, err := writer.CreateFormFile(fieldName, fileName)
 		if err != nil {
+			_ = file.Close()
 			return fmt.Sprintf("Error creating form file: %s", err), -1
 		}
 
 		// Copy file content to form field
 		if _, err := io.Copy(part, file); err != nil {
+			_ = file.Close()
 			return fmt.Sprintf("Error copying file content: %s", err), -1
+		}
+
+		// Close file immediately after reading
+		if err := file.Close(); err != nil {
+			log.Printf("Error closing file: %v", err)
 		}
 	}
 
@@ -1037,7 +1058,11 @@ func httpMultipartUpload(endpoint string, fieldName string, files []string) (str
 	if err != nil {
 		return fmt.Sprintf("Error sending request: %s", err), -10
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("Error closing response body: %v", err)
+		}
+	}()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -1084,7 +1109,11 @@ func httpMultipartUploadReader(endpoint string, fieldName string, fileName strin
 	if err != nil {
 		return fmt.Sprintf("Error sending request: %s", err), -10
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("Error closing response body: %v", err)
+		}
+	}()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -1111,7 +1140,11 @@ func httpGetBinary(endpoint string) ([]byte, string, int) {
 	if err != nil {
 		return nil, "", -10
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("Error closing response body: %v", err)
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -1212,7 +1245,7 @@ func DownloadAttachmentToFile(docId string, attachmentId int, destPath string) e
 		return fmt.Errorf("failed to download attachment: HTTP %d", status)
 	}
 
-	return os.WriteFile(destPath, content, 0644)
+	return os.WriteFile(destPath, content, 0600)
 }
 
 // RestoreAttachments uploads a .tar archive to restore missing attachments

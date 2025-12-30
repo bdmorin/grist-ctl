@@ -1,0 +1,22 @@
+# Pre-commit hook configuration
+# Install: pip install pre-commit && pre-commit install
+# See https://pre-commit.com for more information
+
+repos:
+  # Standard pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+
+  # Go formatting and linting
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.62.0
+    hooks:
+      - id: golangci-lint
+        # Only lint changed files for faster commits
+        args: [--new-from-rev=HEAD~1]
