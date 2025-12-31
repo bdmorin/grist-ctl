@@ -102,6 +102,11 @@ issues:
       linters:
         - gocyclo
 
+    # TUI has inherently high complexity due to Bubble Tea event handling
+    - path: tui/tui\.go
+      linters:
+        - gocyclo
+
   exclude-use-default: false
   fix: false
 
