@@ -585,6 +585,7 @@ func ExportDocGrist(docId string, fileName string) {
 	url := fmt.Sprintf("docs/%s/download", docId)
 	export, returnCode := httpGet(url, "")
 	if returnCode == http.StatusOK {
+		// #nosec G304 - fileName is user-provided CLI argument for export destination
 		f, e := os.Create(fileName)
 		if e != nil {
 			panic(e)
@@ -605,6 +606,7 @@ func ExportDocExcel(docId string, fileName string) {
 	url := fmt.Sprintf("docs/%s/download/xlsx", docId)
 	export, returnCode := httpGet(url, "")
 	if returnCode == http.StatusOK {
+		// #nosec G304 - fileName is user-provided CLI argument for export destination
 		f, e := os.Create(fileName)
 		if e != nil {
 			panic(e)
@@ -1015,6 +1017,7 @@ func httpMultipartUpload(endpoint string, fieldName string, files []string) (str
 	writer := multipart.NewWriter(body)
 
 	for _, filePath := range files {
+		// #nosec G304 - filePath is user-provided CLI argument for file upload
 		file, err := os.Open(filePath)
 		if err != nil {
 			return fmt.Sprintf("Error opening file %s: %s", filePath, err), -1

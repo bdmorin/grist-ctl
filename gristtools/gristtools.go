@@ -127,6 +127,7 @@ func Config() {
 		}
 
 		if common.Confirm(fmt.Sprintf("\n%s :\n- URL : %s\n- Token: %s\n%s ", common.T("config.new"), url, maskedToken, common.T("questions.isOk"))) {
+			// #nosec G304 - configFile is ~/.gristle, a known safe path
 			f, err := os.Create(configFile)
 			if err != nil {
 				fmt.Printf("%s %s (%s)", common.T("config.saveError"), configFile, err)
