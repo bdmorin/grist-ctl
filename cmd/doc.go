@@ -44,10 +44,10 @@ var docWebhooksCmd = &cobra.Command{
 }
 
 var docExportCmd = &cobra.Command{
-	Use:   "export <doc-id> <format>",
-	Short: "Export document",
-	Long:  `Export document in the specified format: excel or grist`,
-	Args:  cobra.ExactArgs(2),
+	Use:       "export <doc-id> <format>",
+	Short:     "Export document",
+	Long:      `Export document in the specified format: excel or grist`,
+	Args:      cobra.ExactArgs(2),
 	ValidArgs: []string{"excel", "grist"},
 	Run: func(cmd *cobra.Command, args []string) {
 		docID := args[0]
