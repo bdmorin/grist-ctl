@@ -55,7 +55,11 @@ If adding a new feature, include appropriate tests.
 Run tests to verify that your changes do not introduce any issues:
 
 ```bash
+# Run tests
 go test ./...
+
+# Or use mise for complete checks (tests + linting)
+mise run check
 ```
 
 #### Step 5: Submit a Pull Request

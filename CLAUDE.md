@@ -2,11 +2,12 @@
 
 ## Project Overview
 
-**gristctl** is a command-line utility for interacting with [Grist](https://www.getgrist.com/), a platform that combines relational database capabilities with spreadsheet flexibility. This tool enables automation and management of Grist documents, workspaces, organizations, and users.
+**gristle** is a command-line utility for interacting with [Grist](https://www.getgrist.com/), a platform that combines relational database capabilities with spreadsheet flexibility. This tool enables automation and management of Grist documents, workspaces, organizations, and users.
 
 ### Key Components
 
-- **CLI** (`main.go`) - Command-line interface using Cobra
+- **CLI** (`cmd/`) - Cobra-based command-line interface with subcommands
+- **Main** (`main.go`) - Entry point that calls cmd.Execute()
 - **TUI** (`tui/`) - Interactive terminal UI using Bubble Tea
 - **MCP Server** (`mcp/`) - Model Context Protocol server for AI agent integration
 - **Grist API Client** (`gristapi/`) - HTTP client for Grist REST API
@@ -14,11 +15,11 @@
 
 ### Technology Stack
 
-- **Language**: Go 1.23+
+- **Language**: Go 1.24+
 - **CLI Framework**: Cobra
 - **TUI Framework**: Bubble Tea (charmbracelet)
 - **MCP Library**: mark3labs/mcp-go
-- **Output Formats**: Table, JSON, CSV
+- **Output Formats**: Table, JSON
 
 ## Testing Environment
 
@@ -26,7 +27,7 @@ Each agent session has access to a dedicated Grist playground for testing:
 
 **Playground URL**: https://grist.hexxa.dev/o/docs/uFiFazkXAEwx/vibe-kanban-playground
 
-Use this workspace to create test documents, tables, and data when developing or testing gristctl features. This is a safe sandbox environment for experimentation.
+Use this workspace to create test documents, tables, and data when developing or testing gristle features. This is a safe sandbox environment for experimentation.
 
 ## Building and Testing
 
@@ -34,22 +35,25 @@ Use this workspace to create test documents, tables, and data when developing or
 # Build the project
 go build
 
-# Run tests
+# Run tests (or use mise run test)
 go test ./...
 
+# Run full checks (lint + test)
+mise run check
+
 # Run the CLI
-./gristctl --help
+./gristle --help
 
 # Run the MCP server
-./gristctl mcp
+./gristle mcp
 
-# Run the TUI
-./gristctl tui
+# Run the TUI (or just ./gristle)
+./gristle
 ```
 
 ## Configuration
 
-gristctl reads configuration from `~/.gristctl`:
+gristle reads configuration from `~/.gristle`:
 
 ```ini
 GRIST_TOKEN="your-api-token"
@@ -106,25 +110,53 @@ The MCP server exposes these tools for AI agents:
 
 ## TUI Features
 
-- Launches by default when running `./gristctl` with no args
+- Launches by default when running `./gristle` with no args
 - Hierarchical navigation: Orgs → Workspaces → Documents → Actions
 - Keyboard: `↑/k` `↓/j` navigate, `Enter` select, `Esc` back, `q` quit
 - Document actions: View Tables, Export (CSV/Excel/Grist), View Access, Delete
+
+## CLI Command Structure
+
+The CLI follows git/kubectl-style subcommand patterns:
+
+```bash
+gristle [global-flags] <command> [subcommand] [args]
+
+# Examples:
+gristle org list                    # List all organizations
+gristle org get 123                 # Get org details
+gristle doc export abc123 excel     # Export document
+gristle --json org list             # JSON output
+```
 
 ## File Structure
 
 ```
 grist-ctl/
-├── main.go              # Entry point, command routing
+├── main.go              # Entry point, calls cmd.Execute()
+├── cmd/                 # Cobra command definitions
+│   ├── root.go          # Root command + global flags
+│   ├── org.go           # Organization commands
+│   ├── doc.go           # Document commands
+│   ├── workspace.go     # Workspace commands
+│   ├── delete.go        # Delete commands
+│   ├── move.go          # Move commands
+│   ├── create.go        # Create commands
+│   ├── purge.go         # Purge commands
+│   ├── import.go        # Import commands
+│   ├── users.go         # User commands
+│   ├── config.go        # Config command
+│   ├── version.go       # Version command
+│   └── mcp.go           # MCP server command
 ├── tui/
 │   ├── tui.go           # Bubbletea model, views, navigation
 │   ├── styles.go        # Lipgloss styling
 │   └── keys.go          # Keybindings
 ├── mcp/
 │   └── server.go        # MCP server with tools
-├── gristapi/            # API client
+├── gristapi/            # API client with comprehensive test coverage
 ├── gristtools/          # CLI display helpers
-├── common/              # Utilities
+├── common/              # Utilities (config, i18n, URL validation)
 ├── docs/research/       # MCP best practices research
 └── go.mod
 ```

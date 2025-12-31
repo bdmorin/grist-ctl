@@ -68,7 +68,7 @@ go build -o gristle .
 ./gristle
 ```
 
-**Requirements:** Go 1.23+
+**Requirements:** Go 1.24+
 
 ## Configuration
 
@@ -123,53 +123,69 @@ $ gristle serve
 ### CLI Commands
 
 ```bash
-gristle [options] <command>
+gristle [flags] <command> [subcommand] [args]
 ```
 
-#### Options
+#### Global Flags
 
-| Option | Description |
-|--------|-------------|
-| `-o`   | Output format: `table` (default), `json`, or `csv` |
-| `-json`| Shorthand for `-o=json` |
+| Flag | Description |
+|------|-------------|
+| `-o, --output` | Output format: `table` (default) or `json` |
+| `--json` | Shorthand for `-o json` |
+| `-h, --help` | Help for any command |
 
 #### Commands
 
+**General**
 | Command | Description |
 |---------|-------------|
-| `config` | Configure Grist server URL & token |
-| `version` | Show version |
-| **Organizations** | |
-| `get org` | List all organizations |
-| `get org <id>` | Organization details |
-| `get org <id> access` | List org access rights |
-| `get org <id> usage` | Show org usage stats |
-| `create org <name> <domain>` | Create an organization |
-| `delete org <id> <name>` | Delete an organization |
-| **Workspaces** | |
-| `get workspace <id>` | Workspace details |
-| `get workspace <id> access` | List workspace access rights |
-| `delete workspace <id>` | Delete a workspace |
-| **Documents** | |
-| `get doc <id>` | Document details |
-| `get doc <id> access` | List document access rights |
-| `get doc <id> table <name>` | Export table as CSV |
-| `get doc <id> excel` | Export as Excel |
-| `get doc <id> grist` | Export as Grist (sqlite) |
-| `move doc <id> workspace <wsid>` | Move doc to workspace |
-| `move docs from <wsid> to <wsid>` | Move all docs between workspaces |
-| `purge doc <id> [keep]` | Purge doc history (default: keep 3) |
-| `delete doc <id>` | Delete a document |
-| **Users** | |
-| `get users` | List all users and roles |
-| `import users` | Import users from stdin |
-| `delete user <id>` | Delete a user |
+| `gristle config` | Configure Grist server URL & token |
+| `gristle version` | Show version information |
+| `gristle help [command]` | Get help for any command |
+
+**Organizations**
+| Command | Description |
+|---------|-------------|
+| `gristle org list` | List all organizations |
+| `gristle org get <id>` | Get organization details |
+| `gristle org access <id>` | Show organization member access |
+| `gristle org usage <id>` | Show organization usage stats |
+| `gristle create org <name> <domain>` | Create a new organization |
+| `gristle delete org <id> <name>` | Delete an organization |
+
+**Workspaces**
+| Command | Description |
+|---------|-------------|
+| `gristle workspace get <id>` | Get workspace details |
+| `gristle workspace access <id>` | Show workspace access permissions |
+| `gristle delete workspace <id>` | Delete a workspace |
+
+**Documents**
+| Command | Description |
+|---------|-------------|
+| `gristle doc get <id>` | Get document details |
+| `gristle doc access <id>` | Show document access permissions |
+| `gristle doc webhooks <id>` | List document webhooks |
+| `gristle doc table <id> <table>` | Export table as CSV |
+| `gristle doc export <id> excel` | Export document as Excel |
+| `gristle doc export <id> grist` | Export document as Grist (sqlite) |
+| `gristle move doc <id> <wsid>` | Move document to workspace |
+| `gristle move docs <from-wsid> <to-wsid>` | Move all docs between workspaces |
+| `gristle purge doc <id> [keep]` | Purge doc history (default: keep 3 states) |
+| `gristle delete doc <id>` | Delete a document |
+
+**Users**
+| Command | Description |
+|---------|-------------|
+| `gristle users list` | List all users and their roles |
+| `gristle import users` | Import users from stdin |
+| `gristle delete user <id>` | Delete a user |
 
 ### Examples
 
 ```bash
 # List all orgs
-$ gristle get org
+$ gristle org list
 +----+----------+
 | ID |   NAME   |
 +----+----------+
@@ -178,13 +194,17 @@ $ gristle get org
 +----+----------+
 
 # Get org details as JSON
-$ gristle -o=json get org 3
+$ gristle org get 3 --json
 
 # Export a document to Excel
-$ gristle get doc abc123 excel
+$ gristle doc export abc123 excel
 
 # Move all docs from one workspace to another
-$ gristle move docs from 100 to 200
+$ gristle move docs 100 200
+
+# Get help for any command
+$ gristle help doc
+$ gristle doc --help
 ```
 
 ## Contributing
