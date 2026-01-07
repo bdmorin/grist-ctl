@@ -11,9 +11,9 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
-	"syscall"
 	"unicode/utf8"
 
 	"github.com/Xuanwo/go-locale"
@@ -98,8 +98,8 @@ func Ask(question string) string {
 func AskSecure(question string) string {
 	fmt.Printf("%s : ", question)
 
-	// Read password without echo
-	bytePassword, err := term.ReadPassword(syscall.Stdin)
+	// Read password without echo (os.Stdin.Fd() returns uintptr on all platforms)
+	bytePassword, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Println() // Print newline after password input
 
 	if err != nil {

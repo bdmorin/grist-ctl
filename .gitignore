@@ -1,5 +1,4 @@
 main
-go.sum
 .env
 gristle
 gristle.exe
@@ -10,3 +9,6 @@ gristle.exe
 /worktrees/
 /worktree-*/
 *.test
+
+# bv (beads viewer) local config and caches
+.bv/
